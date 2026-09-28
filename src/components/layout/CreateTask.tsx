@@ -1,11 +1,11 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useFieldArray, useForm } from "react-hook-form";
-import { Plus, Trash2, X } from "lucide-react";
+import { Plus, Trash2, X, Paperclip } from "lucide-react";
 import { z } from "zod";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -39,28 +39,33 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
-import { initials } from "@/lib/format";
-import { users } from "@/lib/mock";
+import { initials, avatarColor } from "@/lib/format";
+import { users, currentUser } from "@/lib/mock";
+import { loadWorks, saveWorks, notifyWorksUpdated, loadProjects, seedIfEmpty } from "@/lib/storage";
 
 const createTaskSchema = z.object({
   title: z.string().min(3, "Title minimal 3 karakter."),
-  description: z.string(),
+  description: z.string().min(1, "Description wajib diisi."),
   priority: z.enum(["low", "medium", "high"]),
-  module: z.string().min(1, "Pilih module."),
-  assignees: z.array(z.string()).min(1, "Pilih minimal 1 assignee."),
+  projectId: z.string().min(1, "Pilih project."),
+  assignee: z.string().optional(),
+  dueDate: z.string().optional(),
   subTasks: z.array(
     z.object({ name: z.string().min(2, "Minimal 2 karakter.") })
   ),
+  hasChecklist: z.boolean().default(false),
 });
 
-type CreateTaskValues = z.infer<typeof createTaskSchema>;
+export type CreateTaskValues = z.infer<typeof createTaskSchema>;
 
 export function CreateTaskDialog({
   open,
   onOpenChange,
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onSubmit: (data: CreateTaskValues) => void;
 }) {
   const form = useForm<CreateTaskValues>({
     resolver: zodResolver(createTaskSchema),
@@ -68,9 +73,11 @@ export function CreateTaskDialog({
       title: "",
       description: "",
       priority: "medium",
-      module: "",
-      assignees: [],
+      projectId: "",
+      assignee: "",
+      dueDate: "",
       subTasks: [],
+      hasChecklist: false,
     },
   });
 
@@ -80,16 +87,10 @@ export function CreateTaskDialog({
   });
 
   const [newSub, setNewSub] = useState("");
-  const [assigneeQuery, setAssigneeQuery] = useState("");
-
-  // Rekomendasi hanya muncul saat ketik @, maksimal 3
-  const atMatch = assigneeQuery.match(/@([\w ]*)$/);
-  const assigneeNormalized = atMatch ? atMatch[1].toLowerCase().trim() : null;
 
   const resetAll = () => {
     form.reset();
     setNewSub("");
-    setAssigneeQuery("");
   };
 
   const handleOpenChange = (v: boolean) => {
@@ -104,32 +105,50 @@ export function CreateTaskDialog({
     setNewSub("");
   };
 
-  const onSubmit = (_v: CreateTaskValues) => {
-    // Belum ada backend — tutup dan reset dulu
+  const handleSubmit = (v: CreateTaskValues) => {
+    const data = { ...v };
+    onSubmit(data);
     handleOpenChange(false);
   };
+
+  const handleClose = () => handleOpenChange(false);
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <DialogTitle>Create Task</DialogTitle>
-          <DialogDescription>
-            Isi title, description, priority, dan tabel sub-task.
-          </DialogDescription>
+        <DialogHeader className="pb-4">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <DialogTitle className="text-lg font-semibold">Create Task</DialogTitle>
+              <DialogDescription className="text-sm text-muted-foreground mt-0.5">
+                Create a new task
+              </DialogDescription>
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0"
+              onClick={handleClose}
+              aria-label="Close"
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </div>
         </DialogHeader>
-        <form id="create-task-form" onSubmit={form.handleSubmit(onSubmit)}>
+
+        <form id="create-task-form" onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
           <FieldGroup>
             <Controller
               name="title"
               control={form.control}
               render={({ field, fieldState }) => (
                 <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel htmlFor="ct-title">Title</FieldLabel>
+                  <FieldLabel htmlFor="ct-title">Task title *</FieldLabel>
                   <Input
                     {...field}
                     id="ct-title"
-                    placeholder="cth: Check Machine Line 4"
+                    placeholder="What needs to be done?"
                     aria-invalid={fieldState.invalid}
                     autoComplete="off"
                   />
@@ -139,6 +158,7 @@ export function CreateTaskDialog({
                 </Field>
               )}
             />
+
             <Controller
               name="description"
               control={form.control}
@@ -148,8 +168,8 @@ export function CreateTaskDialog({
                   <Textarea
                     {...field}
                     id="ct-desc"
-                    placeholder="Tulis deskripsi pekerjaan..."
-                    rows={3}
+                    placeholder="Add details or instructions..."
+                    rows={4}
                     className="resize-y"
                     aria-invalid={fieldState.invalid}
                   />
@@ -159,178 +179,26 @@ export function CreateTaskDialog({
                 </Field>
               )}
             />
-            <div className="grid grid-cols-2 gap-4">
+
             <Controller
-              name="priority"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel>Priority</FieldLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger aria-invalid={fieldState.invalid}>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="low">Low</SelectItem>
-                      <SelectItem value="medium">Medium</SelectItem>
-                      <SelectItem value="high">High</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {fieldState.invalid && (
-                    <FieldError errors={[fieldState.error]} />
-                  )}
-                </Field>
-              )}
-            />
-            <Controller
-              name="module"
-              control={form.control}
-              render={({ field, fieldState }) => (
-                <Field data-invalid={fieldState.invalid}>
-                  <FieldLabel>Module</FieldLabel>
-                  <Select value={field.value} onValueChange={field.onChange}>
-                    <SelectTrigger aria-invalid={fieldState.invalid}>
-                      <SelectValue placeholder="Pilih module" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="module-1">Module 1</SelectItem>
-                      <SelectItem value="module-2">Module 2</SelectItem>
-                      <SelectItem value="module-3">Module 3</SelectItem>
-                      <SelectItem value="module-4">Module 4</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  {fieldState.invalid && (
-                    <FieldError errors={[fieldState.error]} />
-                  )}
-                </Field>
-              )}
-            />
-            </div>
-            <Controller
-              name="assignees"
+              name="projectId"
               control={form.control}
               render={({ field, fieldState }) => {
-                const selected = field.value ?? [];
-                const suggestions =
-                  assigneeNormalized === null
-                    ? []
-                    : users
-                        .filter(
-                          (u) =>
-                            !selected.includes(u.name) &&
-                            u.name
-                              .toLowerCase()
-                              .includes(assigneeNormalized)
-                        )
-                        .slice(0, 3);
-                const addName = (name: string) => {
-                  const clean = name.replace(/^@/, "").trim();
-                  if (!clean) return;
-                  const found =
-                    users.find(
-                      (u) => u.name.toLowerCase() === clean.toLowerCase()
-                    ) ??
-                    users.find((u) =>
-                      u.name.toLowerCase().includes(clean.toLowerCase())
-                    );
-                  const toAdd = found?.name ?? clean;
-                  if (selected.includes(toAdd)) {
-                    setAssigneeQuery("");
-                    return;
-                  }
-                  field.onChange([...selected, toAdd]);
-                  setAssigneeQuery("");
-                };
+                seedIfEmpty();
+                const projects = loadProjects();
                 return (
                   <Field data-invalid={fieldState.invalid}>
-                    <FieldLabel htmlFor="ct-assignees">Assignees</FieldLabel>
-                    {selected.length > 0 && (
-                      <div className="flex flex-wrap gap-1.5">
-                        {selected.map((name: string) => (
-                          <Badge
-                            key={name}
-                            variant="secondary"
-                            className="inline-flex items-center gap-1.5 py-1 pr-1 pl-1.5 font-normal"
-                          >
-                            <Avatar className="h-4 w-4">
-                              <AvatarFallback className="text-[8px]">
-                                {initials(name)}
-                              </AvatarFallback>
-                            </Avatar>
-                            <span className="max-w-32 truncate">{name}</span>
-                            <button
-                              type="button"
-                              aria-label={`Hapus ${name}`}
-                              onClick={() =>
-                                field.onChange(
-                                  selected.filter((a: string) => a !== name)
-                                )
-                              }
-                              className="rounded-full p-0.5 hover:bg-muted"
-                            >
-                              <X className="h-3 w-3" />
-                            </button>
-                          </Badge>
+                    <FieldLabel htmlFor="ct-project">Project *</FieldLabel>
+                    <Select value={field.value || ""} onValueChange={(v) => field.onChange(v)}>
+                      <SelectTrigger aria-invalid={fieldState.invalid} id="ct-project">
+                        <SelectValue placeholder="Select project" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {projects.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
                         ))}
-                      </div>
-                    )}
-                    <div className="relative">
-                      <Input
-                        id="ct-assignees"
-                        value={assigneeQuery}
-                        onChange={(e) => setAssigneeQuery(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (
-                            e.key === "Enter" ||
-                            e.key === "Tab" ||
-                            e.key === ","
-                          ) {
-                            e.preventDefault();
-                            if (suggestions.length > 0) {
-                              addName(suggestions[0].name);
-                            } else if (assigneeQuery.trim()) {
-                              addName(assigneeQuery);
-                            }
-                          } else if (
-                            e.key === "Backspace" &&
-                            assigneeQuery === "" &&
-                            selected.length > 0
-                          ) {
-                            field.onChange(selected.slice(0, -1));
-                          }
-                        }}
-                        placeholder="Ketik @username… cth: @Operator B"
-                        aria-invalid={fieldState.invalid}
-                        autoComplete="off"
-                      />
-                      {suggestions.length > 0 && (
-                        <div className="absolute right-0 left-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover shadow-md">
-                          {suggestions.map((u) => (
-                            <button
-                              key={u.id}
-                              type="button"
-                              onMouseDown={(e) => {
-                                e.preventDefault();
-                                addName(u.name);
-                              }}
-                              className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
-                            >
-                              <Avatar className="h-6 w-6">
-                                <AvatarFallback className="text-[10px]">
-                                  {initials(u.name)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span className="flex-1 truncate font-medium">
-                                {u.name}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                @{u.name.toLowerCase().replace(/\s+/g, "")}
-                              </span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                      </SelectContent>
+                    </Select>
                     {fieldState.invalid && (
                       <FieldError errors={[fieldState.error]} />
                     )}
@@ -338,16 +206,117 @@ export function CreateTaskDialog({
                 );
               }}
             />
+
+            <Controller
+              name="assignee"
+              control={form.control}
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="ct-assignee">Assignee</FieldLabel>
+                  <Select value={field.value || ""} onValueChange={(v) => field.onChange(v)}>
+                    <SelectTrigger aria-invalid={fieldState.invalid} id="ct-assignee">
+                      <SelectValue placeholder="Select person" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">Unassigned</SelectItem>
+                      {users.map((u) => (
+                        <SelectItem key={u.id} value={u.name}>
+                          <div className="flex items-center gap-2">
+                            <Avatar className="h-5 w-5">
+                              <AvatarFallback className={`text-[9px] ${avatarColor(u.name)}`}>
+                                {initials(u.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span>{u.name}</span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
+              )}
+            />
+
+            <div className="grid grid-cols-2 gap-4">
+              <Controller
+                name="priority"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="ct-priority">Priority</FieldLabel>
+                    <Select value={field.value} onValueChange={field.onChange}>
+                      <SelectTrigger aria-invalid={fieldState.invalid} id="ct-priority">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="low">Low</SelectItem>
+                        <SelectItem value="medium">Normal</SelectItem>
+                        <SelectItem value="high">High</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+
+              <Controller
+                name="dueDate"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="ct-due-date">Due date</FieldLabel>
+                    <Input
+                      id="ct-due-date"
+                      type="date"
+                      {...field}
+                      aria-invalid={fieldState.invalid}
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+            </div>
+
+            <div className="flex items-center gap-4 pt-2 border-t">
+              <div className="flex items-center gap-2">
+                <Controller
+                  name="hasChecklist"
+                  control={form.control}
+                  render={({ field }) => (
+                    <Checkbox
+                      checked={field.value}
+                      onCheckedChange={field.onChange}
+                      id="ct-checklist"
+                    />
+                  )}
+                />
+                <label htmlFor="ct-checklist" className="text-sm font-medium cursor-pointer">
+                  Add checklist
+                </label>
+              </div>
+              <Button type="button" variant="outline" size="sm" className="gap-1.5 ml-auto">
+                <Paperclip className="h-4 w-4" />
+                <span>Add attachment</span>
+              </Button>
+            </div>
+
             <Field>
               <FieldLabel>
                 Sub-tasks{" "}
                 <span className="font-normal text-muted-foreground">
-                  {fields.length} baris
+                  {fields.length} items
                 </span>
               </FieldLabel>
               {fields.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  Belum ada sub-task. Tambahkan lewat kolom di bawah.
+                  No sub-tasks yet. Add them below.
                 </p>
               ) : (
                 <div className="overflow-hidden rounded-md border">
@@ -356,7 +325,7 @@ export function CreateTaskDialog({
                       <TableRow>
                         <TableHead>Sub-task</TableHead>
                         <TableHead className="w-10 text-right">
-                          <span className="sr-only">Hapus</span>
+                          <span className="sr-only">Delete</span>
                         </TableHead>
                       </TableRow>
                     </TableHeader>
@@ -392,14 +361,14 @@ export function CreateTaskDialog({
                             >
                               <Trash2 className="h-3.5 w-3.5" />
                               <span className="sr-only">
-                                Hapus baris {i + 1}
+                                Delete row {i + 1}
                               </span>
                             </Button>
                           </TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
-                  </Table>
+                    </Table>
                 </div>
               )}
               <div className="flex gap-2">
@@ -412,7 +381,7 @@ export function CreateTaskDialog({
                       addRow();
                     }
                   }}
-                  placeholder="Ketik sub-task baru…"
+                  placeholder="Type new sub-task…"
                   autoComplete="off"
                 />
                 <Button type="button" variant="outline" onClick={addRow}>
@@ -422,8 +391,9 @@ export function CreateTaskDialog({
             </Field>
           </FieldGroup>
         </form>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => handleOpenChange(false)}>
+
+        <DialogFooter className="flex justify-end gap-2">
+          <Button variant="outline" onClick={handleClose}>
             Cancel
           </Button>
           <Button type="submit" form="create-task-form">
@@ -437,13 +407,48 @@ export function CreateTaskDialog({
 
 export function CreateTaskButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
+  const handleCreate = (v: CreateTaskValues) => {
+    const works_ = loadWorks();
+    const uid = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const existing = new Set(works_.map((w) => w.number));
+    let seq = 131 + works_.length;
+    let num = `TK-${String(seq).padStart(6, "0")}`;
+    while (existing.has(num)) { seq += 1; num = `TK-${String(seq).padStart(6, "0")}`; }
+    works_.unshift({
+      id: `w-${uid}`,
+      number: num,
+      title: v.title,
+      type: "adhoc",
+      status: "todo",
+      priority: v.priority,
+      createdBy: currentUser.name,
+      assignedTo: v.assignee || currentUser.name,
+      team: "Production A",
+      teamId: "t-prod-a",
+      projectId: v.projectId || undefined,
+      shift: "Shift 1",
+      dueDate: v.dueDate ? new Date(v.dueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+      description: v.description,
+      progress: 0,
+      evidenceRequired: false,
+      evidences: [],
+      checklist: v.subTasks.map((s, i) => ({ id: `c-${Date.now()}-${i}`, label: s.name, done: false })),
+      note: "",
+      createdAt: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      updatedAt: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      activities: [],
+      comments: [],
+    });
+    saveWorks(works_);
+    notifyWorksUpdated();
+  };
   return (
     <>
       <Button onClick={() => setOpen(true)} className={className}>
         <Plus className="h-4 w-4" />
         <span>Create Task</span>
       </Button>
-      <CreateTaskDialog open={open} onOpenChange={setOpen} />
+      <CreateTaskDialog open={open} onOpenChange={setOpen} onSubmit={handleCreate} />
     </>
   );
 }
