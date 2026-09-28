@@ -1,6 +1,7 @@
 export type WorkStatus =
   | "todo"
   | "in_progress"
+  | "blocked"
   | "handover"
   | "completed";
 
@@ -13,9 +14,11 @@ export type UserRole = "admin" | "leader" | "member";
 export interface User {
   id: string;
   name: string;
-  initials: string;
+  username?: string;
+  password?: string;
+  initials?: string;
   role: UserRole;
-  teamId: string;
+  teamId?: string;
   shift?: string;
 }
 
@@ -58,6 +61,14 @@ export interface Activity {
   actor: string;
 }
 
+export interface Comment {
+  id: string;
+  author: string;
+  text: string;
+  time?: string;
+  at?: string;
+}
+
 export interface WorkItem {
   id: string;
   number: string;
@@ -75,8 +86,12 @@ export interface WorkItem {
   progress: number;
   evidenceRequired: boolean;
   cancelled?: boolean;
+  projectId?: string;
+  blockedReason?: string;
+  blockedNote?: string;
   evidences: Evidence[];
   checklist: ChecklistItem[];
+  comments?: Comment[];
   note: string;
   createdAt: string;
   updatedAt: string;

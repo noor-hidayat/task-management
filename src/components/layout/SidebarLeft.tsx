@@ -1,16 +1,11 @@
-import * as React from "react";
 import { useLocation } from "react-router-dom";
 import {
   AudioWaveform,
   BarChart3,
-  CalendarDays,
   ClipboardList,
   Command,
-  History,
-  Inbox,
+  FolderKanban,
   LayoutDashboard,
-  NotebookPen,
-  Search,
   Settings,
   Users,
 } from "lucide-react";
@@ -25,9 +20,7 @@ import {
 import { TeamSwitcher } from "@/components/layout/TeamSwitcher";
 import { NavMain } from "@/components/layout/NavMain";
 import { NavSecondary } from "@/components/layout/NavSecondary";
-import { NavUser } from "@/components/layout/NavUser";
 import { CreateTaskButton } from "@/components/layout/CreateTask";
-import { GlobalSearch } from "@/components/layout/GlobalSearch";
 
 const teams = [
   { name: "Production A", logo: Command, plan: "Shift ops" },
@@ -36,32 +29,28 @@ const teams = [
 
 export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { pathname } = useLocation();
-  const [searchOpen, setSearchOpen] = React.useState(false);
 
   return (
-    <>
-      <Sidebar className="border-r-0" {...props}>
-        <SidebarHeader>
-          <TeamSwitcher teams={teams} />
-          <div className="px-0 pt-1">
-            <CreateTaskButton className="w-full" />
-          </div>
-          <NavMain
-            pathname={pathname}
-            items={[
-              { title: "Search", icon: Search, onClick: () => setSearchOpen(true) },
-              { title: "Dashboard", url: "/", icon: LayoutDashboard },
-              { title: "My Task", url: "/my-task", icon: ClipboardList },
-              { title: "Inbox", url: "/inbox", icon: Inbox, badge: "2" },
-            ]}
-          />
-        </SidebarHeader>
+    <Sidebar className="border-r-0" {...props}>
+      <SidebarHeader>
+        <TeamSwitcher teams={teams} />
+        <div className="px-0 pt-1">
+          <CreateTaskButton className="w-full" />
+        </div>
+        <NavMain
+          pathname={pathname}
+          items={[
+            { title: "Dashboard", url: "/", icon: LayoutDashboard },
+            { title: "My Task", url: "/my-task", icon: ClipboardList },
+            { title: "Projects", url: "/projects", icon: FolderKanban },
+          ]}
+        />
+      </SidebarHeader>
         <SidebarContent>
           <NavSecondary
-            label="Notes & Report"
+            label="Report"
             pathname={pathname}
             items={[
-              { title: "Notes", url: "/notes", icon: NotebookPen },
               { title: "Reporting", url: "/reporting", icon: BarChart3 },
             ]}
           />
@@ -70,8 +59,6 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             pathname={pathname}
             items={[
               { title: "Teams", url: "/teams", icon: Users },
-              { title: "Schedule", url: "/schedule", icon: CalendarDays },
-              { title: "History", url: "/history", icon: History },
             ]}
           />
           <NavSecondary
@@ -81,12 +68,8 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             items={[{ title: "Settings", url: "/settings", icon: Settings }]}
           />
         </SidebarContent>
-        <SidebarFooter>
-          <NavUser />
-        </SidebarFooter>
+        <SidebarFooter />
         <SidebarRail />
       </Sidebar>
-      <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
-    </>
   );
 }

@@ -50,10 +50,10 @@ const createTaskSchema = z.object({
   projectId: z.string().min(1, "Pilih project."),
   assignee: z.string().optional(),
   dueDate: z.string().optional(),
-  subTasks: z.array(
-    z.object({ name: z.string().min(2, "Minimal 2 karakter.") })
+  checklist: z.array(
+    z.object({ label: z.string().min(2, "Minimal 2 karakter.") })
   ),
-  hasChecklist: z.boolean().default(false),
+  hasChecklist: z.boolean().optional(),
 });
 
 export type CreateTaskValues = z.infer<typeof createTaskSchema>;
@@ -76,21 +76,21 @@ export function CreateTaskDialog({
       projectId: "",
       assignee: "",
       dueDate: "",
-      subTasks: [],
+      checklist: [],
       hasChecklist: false,
     },
   });
 
-  const { fields, append, remove } = useFieldArray({
+  const { fields: checklistFields, append: appendChecklist, remove: removeChecklist } = useFieldArray({
     control: form.control,
-    name: "subTasks",
+    name: "checklist",
   });
 
-  const [newSub, setNewSub] = useState("");
+  const [newChecklistItem, setNewChecklistItem] = useState("");
 
   const resetAll = () => {
     form.reset();
-    setNewSub("");
+    setNewChecklistItem("");
   };
 
   const handleOpenChange = (v: boolean) => {
@@ -98,11 +98,11 @@ export function CreateTaskDialog({
     onOpenChange(v);
   };
 
-  const addRow = () => {
-    const clean = newSub.trim();
+  const addChecklistItem = () => {
+    const clean = newChecklistItem.trim();
     if (clean.length < 2) return;
-    append({ name: clean });
-    setNewSub("");
+    appendChecklist({ label: clean });
+    setNewChecklistItem("");
   };
 
   const handleSubmit = (v: CreateTaskValues) => {
@@ -307,88 +307,98 @@ export function CreateTaskDialog({
               </Button>
             </div>
 
-            <Field>
-              <FieldLabel>
-                Sub-tasks{" "}
-                <span className="font-normal text-muted-foreground">
-                  {fields.length} items
-                </span>
-              </FieldLabel>
-              {fields.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No sub-tasks yet. Add them below.
-                </p>
-              ) : (
-                <div className="overflow-hidden rounded-md border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead>Sub-task</TableHead>
-                        <TableHead className="w-10 text-right">
-                          <span className="sr-only">Delete</span>
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {fields.map((f, i) => (
-                        <TableRow key={f.id}>
-                          <TableCell>
-                            <Controller
-                              name={`subTasks.${i}.name`}
-                              control={form.control}
-                              render={({ field, fieldState }) => (
-                                <Field data-invalid={fieldState.invalid}>
-                                  <Input
-                                    {...field}
-                                    aria-label={`Sub-task ${i + 1}`}
-                                    aria-invalid={fieldState.invalid}
-                                    autoComplete="off"
+            <Controller
+              name="hasChecklist"
+              control={form.control}
+              render={({ field }) =>
+                field.value ? (
+                  <Field>
+                    <FieldLabel>
+                      Checklist{" "}
+                      <span className="font-normal text-muted-foreground">
+                        {checklistFields.length} items
+                      </span>
+                    </FieldLabel>
+                    {checklistFields.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No checklist items yet. Add them below.
+                      </p>
+                    ) : (
+                      <div className="overflow-hidden rounded-md border">
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>Checklist Item</TableHead>
+                              <TableHead className="w-10 text-right">
+                                <span className="sr-only">Delete</span>
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {checklistFields.map((f, i) => (
+                              <TableRow key={f.id}>
+                                <TableCell>
+                                  <Controller
+                                    name={`checklist.${i}.label`}
+                                    control={form.control}
+                                    render={({ field, fieldState }) => (
+                                      <Field data-invalid={fieldState.invalid}>
+                                        <Input
+                                          {...field}
+                                          aria-label={`Checklist item ${i + 1}`}
+                                          aria-invalid={fieldState.invalid}
+                                          autoComplete="off"
+                                        />
+                                        {fieldState.invalid && (
+                                          <FieldError errors={[fieldState.error]} />
+                                        )}
+                                      </Field>
+                                    )}
                                   />
-                                  {fieldState.invalid && (
-                                    <FieldError errors={[fieldState.error]} />
-                                  )}
-                                </Field>
-                              )}
-                            />
-                          </TableCell>
-                          <TableCell className="text-right">
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7"
-                              onClick={() => remove(i)}
-                            >
-                              <Trash2 className="h-3.5 w-3.5" />
-                              <span className="sr-only">
-                                Delete row {i + 1}
-                              </span>
-                            </Button>
-                          </TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                    </Table>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <Input
-                  value={newSub}
-                  onChange={(e) => setNewSub(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      addRow();
-                    }
-                  }}
-                  placeholder="Type new sub-task…"
-                  autoComplete="off"
-                />
-                <Button type="button" variant="outline" onClick={addRow}>
-                  <Plus className="h-4 w-4" /> Add
-                </Button>
-              </div>
-            </Field>
+                                </TableCell>
+                                <TableCell className="text-right">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-7 w-7"
+                                    onClick={() => removeChecklist(i)}
+                                  >
+                                    <Trash2 className="h-3.5 w-3.5" />
+                                    <span className="sr-only">
+                                      Delete row {i + 1}
+                                    </span>
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <Input
+                        value={newChecklistItem}
+                        onChange={(e) => setNewChecklistItem(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            addChecklistItem();
+                          }
+                        }}
+                        placeholder="Type new checklist item…"
+                        autoComplete="off"
+                      />
+                      <Button type="button" variant="outline" onClick={addChecklistItem}>
+                        <Plus className="h-4 w-4" /> Add
+                      </Button>
+                    </div>
+                  </Field>
+                ) : (
+                  <></>
+                )
+              }
+            />
           </FieldGroup>
         </form>
 
@@ -414,6 +424,8 @@ export function CreateTaskButton({ className }: { className?: string }) {
     let seq = 131 + works_.length;
     let num = `TK-${String(seq).padStart(6, "0")}`;
     while (existing.has(num)) { seq += 1; num = `TK-${String(seq).padStart(6, "0")}`; }
+    const now = new Date();
+    const checklistItems = (v.checklist || []).map((c, i) => ({ id: `cl-${Date.now()}-${i}`, label: c.label, done: false }));
     works_.unshift({
       id: `w-${uid}`,
       number: num,
@@ -427,15 +439,15 @@ export function CreateTaskButton({ className }: { className?: string }) {
       teamId: "t-prod-a",
       projectId: v.projectId || undefined,
       shift: "Shift 1",
-      dueDate: v.dueDate ? new Date(v.dueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : new Date().toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+      dueDate: v.dueDate ? new Date(v.dueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
       description: v.description,
       progress: 0,
       evidenceRequired: false,
       evidences: [],
-      checklist: v.subTasks.map((s, i) => ({ id: `c-${Date.now()}-${i}`, label: s.name, done: false })),
+      checklist: checklistItems,
       note: "",
-      createdAt: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-      updatedAt: new Date().toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      createdAt: now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
+      updatedAt: now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
       activities: [],
       comments: [],
     });

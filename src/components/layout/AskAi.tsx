@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Send, Sparkles } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,23 @@ export function AskAiDialog({
     },
   ]);
 
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll ke bawah tiap ada pesan baru (WA-style)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [messages]);
+
+  // Saat dialog dibuka, langsung ke paling bawah
+  useEffect(() => {
+    if (!open) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+  }, [open]);
+
   const send = () => {
     const text = q.trim();
     if (!text) return;
@@ -44,7 +61,7 @@ export function AskAiDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="flex h-[80vh] max-h-[600px] flex-col gap-3 sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="h-4 w-4" /> Ask AI
@@ -53,7 +70,10 @@ export function AskAiDialog({
             AI operational assistant — mock UI, backend Phase 3.
           </DialogDescription>
         </DialogHeader>
-        <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border p-3 text-sm">
+        <div
+          ref={scrollRef}
+          className="flex-1 min-h-0 space-y-2 overflow-y-auto rounded-lg border p-3 text-sm"
+        >
           {messages.map((m, i) => (
             <div
               key={i}
@@ -67,7 +87,7 @@ export function AskAiDialog({
             </div>
           ))}
         </div>
-        <div className="flex gap-2">
+        <div className="flex shrink-0 gap-2">
           <Input
             placeholder="Tanya tentang pekerjaan / shift..."
             value={q}

@@ -11,24 +11,21 @@ import {
   GripVertical,
   List,
   MoreHorizontal,
-  MoveRight,
   Plus,
   RotateCcw,
   Ban,
+  Trash2,
 } from "lucide-react";
 import {
-  columnVisibilityFeature,
   createColumnHelper,
-  createSortedRowModel,
-  rowSortingFeature,
-  sortFn_alphanumeric,
-  sortFn_text,
-  tableFeatures,
-  useTable,
+  flexRender,
+  getCoreRowModel,
+  getSortedRowModel,
+  useReactTable,
   type SortingState,
 } from "@tanstack/react-table";
 
-import { PageHeader } from "@/components/page-header";
+// import { PageHeader } from "@/components/page-header";
 import { PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -45,8 +42,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -71,29 +66,24 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { initials, statusLabel } from "@/lib/format";
-import { currentUser, users, works } from "@/lib/mock";
+import { initials, statusLabel, groupLabel, avatarColor } from "@/lib/format";
+import { currentUser, users } from "@/lib/mock";
 import { cn } from "@/lib/utils";
+import { loadWorks, saveWorks, seedIfEmpty, notifyWorksUpdated, loadProjects } from "@/lib/storage";
 import type { Priority, WorkItem, WorkStatus } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /*  Spreadsheet: 4 tabel per status, baris bisa dipindah               */
 /* ------------------------------------------------------------------ */
 
-const sortFeatures = tableFeatures({
-  columnVisibilityFeature,
-  rowSortingFeature,
-  sortedRowModel: createSortedRowModel(),
-  sortFns: { alphanumeric: sortFn_alphanumeric, text: sortFn_text },
-});
+const sortFeatures = getSortedRowModel();
 
-const statusColumnHelper =
-  createColumnHelper<typeof sortFeatures, WorkItem>();
+const statusColumnHelper = createColumnHelper<WorkItem>();
 
 const STATUS_ORDER: WorkStatus[] = [
   "todo",
   "in_progress",
-  "handover",
+  "blocked",
   "completed",
 ];
 
@@ -103,6 +93,7 @@ export type NewWorkFields = {
   priority: Priority;
   team: string;
   teamId: string;
+  projectId?: string;
   dueDate: string;
   description: string;
   status: WorkStatus;
@@ -138,6 +129,7 @@ function CreateWorkDialog({
   const [assignedTo, setAssignedTo] = React.useState(currentUser.name);
   const [priority, setPriority] = React.useState<Priority>("medium");
   const [teamId, setTeamId] = React.useState("t-prod-a");
+  const [projectId, setProjectId] = React.useState("");
   const [due, setDue] = React.useState("2026-09-26");
   const [description, setDescription] = React.useState("");
   const [targetStatus, setTargetStatus] = React.useState<WorkStatus>("todo");
@@ -231,9 +223,25 @@ function CreateWorkDialog({
                 onChange={(e) => setDue(e.target.value)}
               />
             </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Status (grup tujuan)</Label>
+</div>
+           <div className="grid gap-2">
+             <Label>Project (opsional)</Label>
+             <Select value={projectId || "none"} onValueChange={(v) => setProjectId(v === "none" ? "" : v)}>
+               <SelectTrigger>
+                 <SelectValue placeholder="Pilih project" />
+               </SelectTrigger>
+               <SelectContent>
+                 <SelectItem value="none">Tanpa project</SelectItem>
+                 {(() => {
+                   seedIfEmpty();
+                   const projects = loadProjects();
+                   return projects.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>);
+                 })()}
+               </SelectContent>
+             </Select>
+           </div>
+           <div className="grid gap-2">
+             <Label>Status (grup tujuan)</Label>
             <Select
               value={targetStatus}
               onValueChange={(v) => setTargetStatus(v as WorkStatus)}
@@ -273,6 +281,7 @@ function CreateWorkDialog({
                 priority,
                 team: team.name,
                 teamId: team.id,
+                projectId: projectId || undefined,
                 dueDate: toDMY(due),
                 description: description.trim(),
                 status: targetStatus,
@@ -295,11 +304,11 @@ function shortDate(s: string): string {
 }
 
 function makeStatusColumns(
-  onMove: (id: string, status: WorkStatus) => void,
+  _onMove: (id: string, status: WorkStatus) => void,
   onToggleCancel: (id: string) => void,
-  onDragStart: (id: string | null) => void
+  onDelete: (id: string) => void
 ) {
-  return statusColumnHelper.columns([
+  return [
     statusColumnHelper.accessor("title", {
       header: ({ column }) => (
         <Button
@@ -316,55 +325,29 @@ function makeStatusColumns(
         return (
           <div className="flex min-w-72 flex-wrap items-center gap-x-2 gap-y-1">
             <span
-              draggable
-              onDragStart={(e) => {
-                e.dataTransfer.setData("text/plain", t.id);
-                e.dataTransfer.effectAllowed = "move";
-                // Ghost 1 baris penuh: clone <tr> aslinya jadi kartu melayang
-                const tr = (e.currentTarget as HTMLElement).closest("tr");
-                if (tr) {
-                  const rect = tr.getBoundingClientRect();
-                  const wrap = document.createElement("table");
-                  wrap.style.position = "fixed";
-                  wrap.style.top = "-1000px";
-                  wrap.style.left = "0";
-                  wrap.style.width = `${rect.width}px`;
-                  wrap.style.borderCollapse = "collapse";
-                  wrap.style.transform = "rotate(-0.5deg)";
-                  const clone = tr.cloneNode(true) as HTMLElement;
-                  clone.style.background = "var(--card)";
-                  clone.style.border = "1px solid var(--border)";
-                  clone.style.borderRadius = "0.5rem";
-                  clone.style.boxShadow =
-                    "0 25px 50px -12px rgb(0 0 0 / 0.35)";
-                  const tbody = document.createElement("tbody");
-                  tbody.appendChild(clone);
-                  wrap.appendChild(tbody);
-                  document.body.appendChild(wrap);
-                  e.dataTransfer.setDragImage(
-                    wrap,
-                    e.clientX - rect.left,
-                    e.clientY - rect.top
-                  );
-                  setTimeout(() => wrap.remove(), 0);
-                }
-                onDragStart(t.id);
-              }}
-              onDragEnd={() => onDragStart(null)}
-              title="Drag ke grup lain"
-              className="cursor-grab text-muted-foreground hover:text-foreground active:cursor-grabbing"
+              title="Drag baris untuk pindah grup"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded cursor-grab text-muted-foreground hover:bg-muted hover:text-foreground active:cursor-grabbing"
+              aria-hidden
             >
               <GripVertical className="h-4 w-4" />
             </span>
-            <Link
-              to={`/tasks/${t.number}`}
-              className={cn(
-                "font-medium hover:underline",
-                cancelled && "text-muted-foreground line-through"
+            <div className="min-w-0">
+              <Link
+                to={`/tasks/${t.number}`}
+                draggable={false}
+                className={cn(
+                  "font-medium hover:underline",
+                  cancelled && "text-muted-foreground line-through"
+                )}
+              >
+                {row.getValue("title")}
+              </Link>
+              {t.description && (
+                <p className="text-xs text-muted-foreground truncate max-w-[220px] mt-0.5 break-words">
+                  {t.description}
+                </p>
               )}
-            >
-              {row.getValue("title")}
-            </Link>
+            </div>
             {cancelled && (
               <Badge variant="destructive" className="px-1.5 py-0 text-[10px]">
                 Cancelled
@@ -381,7 +364,7 @@ function makeStatusColumns(
         return (
           <div className="flex items-center gap-2">
             <Avatar className="h-6 w-6">
-              <AvatarFallback className="text-[10px]">
+              <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
                 {initials(name)}
               </AvatarFallback>
             </Avatar>
@@ -417,7 +400,6 @@ function makeStatusColumns(
     statusColumnHelper.display({
       id: "actions",
       cell: ({ row }) => {
-        const current = row.original.status;
         const cancelled = !!row.original.cancelled;
         return (
           <DropdownMenu>
@@ -428,18 +410,6 @@ function makeStatusColumns(
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel className="flex items-center gap-1.5">
-                <MoveRight className="h-3.5 w-3.5" /> Move to
-              </DropdownMenuLabel>
-              {STATUS_ORDER.filter((s) => s !== current).map((s) => (
-                <DropdownMenuItem
-                  key={s}
-                  onClick={() => onMove(row.original.id, s)}
-                >
-                  {statusLabel[s]}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
               <DropdownMenuItem
                 onClick={() => onToggleCancel(row.original.id)}
               >
@@ -463,12 +433,18 @@ function makeStatusColumns(
               <DropdownMenuItem asChild>
                 <Link to={`/tasks/${row.original.number}`}>View detail</Link>
               </DropdownMenuItem>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                onClick={() => onDelete(row.original.id)}
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Delete task
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         );
       },
     }),
-  ]);
+  ];
 }
 
 function StatusTaskTable({
@@ -481,6 +457,7 @@ function StatusTaskTable({
   dropHintIndex,
   onHint,
   onMoveAt,
+  onDelete,
 }: {
   status: WorkStatus;
   tasks: WorkItem[];
@@ -491,17 +468,19 @@ function StatusTaskTable({
   dropHintIndex: number | null;
   onHint: (index: number | null) => void;
   onMoveAt: (id: string, status: WorkStatus, beforeId: string | null) => void;
+  onDelete: (id: string) => void;
 }) {
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const columns = React.useMemo(
-    () => makeStatusColumns(onMove, onToggleCancel, onDragStart),
-    [onMove, onToggleCancel, onDragStart]
+    () => makeStatusColumns(onMove, onToggleCancel, onDelete),
+    [onMove, onToggleCancel, onDelete]
   );
 
-  const table = useTable({
-    features: sortFeatures,
+  const table = useReactTable({
     data: tasks,
     columns,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: sortFeatures,
     state: { sorting },
     onSortingChange: setSorting,
   });
@@ -530,10 +509,43 @@ function StatusTaskTable({
             );
             rows.forEach((row, i) => {
               if (dropHintIndex === i) out.push(gapRow(`ph-${i}`));
+              const isCompleted = row.original.status === "completed";
               out.push(
                 <TableRow
                   key={row.id}
-                  onDragOver={(e) => {
+                  draggable
+                  onDragStart={isCompleted ? undefined : (e) => {
+                    e.dataTransfer.setData("text/plain", row.original.id);
+                    e.dataTransfer.effectAllowed = "move";
+                    const tr = e.currentTarget as HTMLElement;
+                    const rect = tr.getBoundingClientRect();
+                    const wrap = document.createElement("table");
+                    wrap.style.position = "fixed";
+                    wrap.style.top = "-1000px";
+                    wrap.style.left = "0";
+                    wrap.style.width = `${rect.width}px`;
+                    wrap.style.borderCollapse = "collapse";
+                    wrap.style.transform = "rotate(-0.5deg)";
+                    const clone = tr.cloneNode(true) as HTMLElement;
+                    clone.style.background = "var(--card)";
+                    clone.style.border = "1px solid var(--border)";
+                    clone.style.borderRadius = "0.5rem";
+                    clone.style.boxShadow =
+                      "0 25px 50px -12px rgb(0 0 0 / 0.35)";
+                    const tbody = document.createElement("tbody");
+                    tbody.appendChild(clone);
+                    wrap.appendChild(tbody);
+                    document.body.appendChild(wrap);
+                    e.dataTransfer.setDragImage(
+                      wrap,
+                      e.clientX - rect.left,
+                      e.clientY - rect.top
+                    );
+                    setTimeout(() => wrap.remove(), 0);
+                    onDragStart(row.original.id);
+                  }}
+                  onDragEnd={isCompleted ? undefined : () => onDragStart(null)}
+                  onDragOver={isCompleted ? undefined : (e) => {
                     e.preventDefault();
                     const rect = (
                       e.currentTarget as HTMLElement
@@ -541,7 +553,7 @@ function StatusTaskTable({
                     const after = e.clientY - rect.top > rect.height / 2;
                     onHint(i + (after ? 1 : 0));
                   }}
-                  onDrop={(e) => {
+                  onDrop={isCompleted ? undefined : (e) => {
                     e.stopPropagation();
                     const rect = (
                       e.currentTarget as HTMLElement
@@ -553,14 +565,14 @@ function StatusTaskTable({
                     onHint(null);
                   }}
                   className={cn(
-                    "transition-opacity",
+                    "cursor-grab transition-opacity active:cursor-grabbing",
                     row.original.cancelled && "opacity-60",
                     dragId === row.original.id && "opacity-30"
                   )}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
-                      <table.FlexRender cell={cell} />
+                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </TableCell>
                   ))}
                 </TableRow>
@@ -595,16 +607,18 @@ function SpreadsheetView({
   onToggleCancel,
   onOpenCreate,
   onMoveAt,
+  onDelete,
 }: {
   data: WorkItem[];
   onMove: (id: string, status: WorkStatus) => void;
   onToggleCancel: (id: string) => void;
   onOpenCreate: (s: WorkStatus) => void;
   onMoveAt: (id: string, status: WorkStatus, beforeId: string | null) => void;
+  onDelete: (id: string) => void;
 }) {
   const [openGroups, setOpenGroups] = React.useState<
     Record<WorkStatus, boolean>
-  >({ todo: true, in_progress: true, handover: true, completed: true });
+  >({ todo: true, in_progress: true, blocked: true, handover: true, completed: true });
   const [dragId, setDragId] = React.useState<string | null>(null);
   const [dragOver, setDragOver] = React.useState<WorkStatus | null>(null);
   const [dropHint, setDropHint] = React.useState<{
@@ -618,15 +632,6 @@ function SpreadsheetView({
 
   return (
     <div className="w-full">
-      <div className="rounded-md border bg-muted/40">
-        <div className="grid grid-cols-[1fr_230px_140px_140px_140px_50px] px-2 py-2.5 text-sm font-medium">
-          <div className="pl-6">Task Title</div>
-          <div>Assignee To</div>
-          <div>Priority</div>
-          <div>Status</div>
-          <div>Date</div>
-        </div>
-      </div>
       <div className="space-y-3 py-3">
         {STATUS_ORDER.map((s) => {
           const items = data.filter((t) => t.status === s);
@@ -644,7 +649,7 @@ function SpreadsheetView({
               }}
               onDragLeave={() => setDragOver(null)}
               onDrop={() => {
-                if (dragId) onMove(dragId, s);
+                if (dragId && s !== "completed") onMove(dragId, s);
                 setDragId(null);
                 setDragOver(null);
               }}
@@ -664,7 +669,7 @@ function SpreadsheetView({
                         )}
                       />
                       <span className="text-sm font-semibold">
-                        {statusLabel[s]}
+                        {groupLabel[s]}
                       </span>
                     </button>
                   </CollapsibleTrigger>
@@ -686,7 +691,7 @@ function SpreadsheetView({
                     variant="ghost"
                     size="icon"
                     className="h-7 w-7"
-                    title={`Buat ${statusLabel[s]} baru`}
+                    title={`Buat ${groupLabel[s]} baru`}
                     onClick={() => onOpenCreate(s)}
                   >
                     <Plus className="h-4 w-4" />
@@ -694,6 +699,15 @@ function SpreadsheetView({
                 </span>
               </div>
               <CollapsibleContent className="p-3 pt-1">
+                <div className="mb-2 px-2">
+                  <div className="grid grid-cols-[1fr_230px_140px_140px_140px_50px] text-xs font-medium text-muted-foreground">
+                    <div className="pl-6">Task Title</div>
+                    <div>Assignee To</div>
+                    <div>Priority</div>
+                    <div>Status</div>
+                    <div>Date</div>
+                  </div>
+                </div>
                 <StatusTaskTable
                   status={s}
                   tasks={items}
@@ -715,6 +729,7 @@ function SpreadsheetView({
                     })
                   }
                   onMoveAt={onMoveAt}
+                  onDelete={onDelete}
                 />
               </CollapsibleContent>
             </Collapsible>
@@ -732,7 +747,7 @@ function SpreadsheetView({
 const kanbanCols: { status: WorkStatus; hint: string }[] = [
   { status: "todo", hint: "Belum dimulai" },
   { status: "in_progress", hint: "Sedang dikerjakan" },
-  { status: "handover", hint: "Menunggu shift berikut" },
+  { status: "blocked", hint: "Terhambat / butuh bantuan" },
   { status: "completed", hint: "Selesai" },
 ];
 
@@ -778,7 +793,7 @@ function KanbanView({
               if (ph?.status === col.status) setPh(null);
             }}
             onDrop={() => {
-              if (dragId) onMove(dragId, col.status);
+              if (dragId && col.status !== "completed") onMove(dragId, col.status);
               clearDrag();
             }}
             className={cn(
@@ -792,7 +807,7 @@ function KanbanView({
             <div className="flex items-center justify-between gap-2 p-3">
               <div>
                 <p className="text-sm font-semibold">
-                  {statusLabel[col.status]}
+                  {groupLabel[col.status]}
                 </p>
                 <p className="text-xs text-muted-foreground">{col.hint}</p>
               </div>
@@ -802,7 +817,7 @@ function KanbanView({
                   variant="ghost"
                   size="icon"
                   className="h-7 w-7"
-                  title={`Buat ${statusLabel[col.status]} baru`}
+                    title={`Buat ${groupLabel[col.status]} baru`}
                   onClick={() => onOpenCreate(col.status)}
                 >
                   <Plus className="h-4 w-4" />
@@ -812,17 +827,28 @@ function KanbanView({
             <div className="flex-1 space-y-2 p-3 pt-0">
               <AnimatePresence initial={false}>
                 {items.flatMap((t, i) => {
-                  const gap =
-                    ph && ph.status === col.status && ph.index === i ? (
-                      <motion.div
-                        key={`ph-${i}`}
-                        initial={{ opacity: 0, scale: 0.95 }}
-                        animate={{ opacity: 1, scale: 1 }}
-                        exit={{ opacity: 0, scale: 0.95 }}
-                        transition={{ duration: 0.18 }}
-                        className="h-28 rounded-lg border-2 border-dashed border-primary/60 bg-primary/5"
-                      />
-                    ) : null;
+                    const gap =
+                      ph && ph.status === col.status && ph.index === i ? (
+                        <motion.div
+                          key={`ph-${i}`}
+                          initial={{ opacity: 0, scale: 0.95 }}
+                          animate={{ opacity: 1, scale: 1 }}
+                          exit={{ opacity: 0, scale: 0.95 }}
+                          transition={{ duration: 0.18 }}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                          }}
+                          onDrop={(e) => {
+                            e.stopPropagation();
+                            const idx = i;
+                            const beforeId = items[idx]?.id ?? null;
+                            if (dragId && col.status !== "completed") onMoveAt(dragId, col.status, beforeId);
+                            clearDrag();
+                          }}
+                          className="h-28 rounded-lg border-2 border-dashed border-primary/60 bg-primary/5"
+                        />
+                      ) : null;
                   return [
                     gap,
                     <motion.div
@@ -860,7 +886,7 @@ function KanbanView({
                         e.clientY - rect.top > rect.height / 2;
                       const idx = i + (after ? 1 : 0);
                       const beforeId = items[idx]?.id ?? null;
-                      if (dragId) onMoveAt(dragId, col.status, beforeId);
+                      if (dragId && col.status !== "completed") onMoveAt(dragId, col.status, beforeId);
                       clearDrag();
                     }}
                   onDragStart={(e) => {
@@ -897,6 +923,7 @@ function KanbanView({
                 >
                   <Link
                     to={`/tasks/${t.number}`}
+                    draggable={false}
                     className={cn(
                       "block text-sm font-medium hover:underline",
                       t.cancelled && "text-muted-foreground line-through"
@@ -919,7 +946,7 @@ function KanbanView({
                         {shortDate(t.createdAt)}
                       </span>
                       <Avatar className="h-6 w-6">
-                        <AvatarFallback className="text-[10px]">
+                        <AvatarFallback className={`text-[10px] ${avatarColor(t.assignedTo)}`}>
                           {initials(t.assignedTo)}
                         </AvatarFallback>
                       </Avatar>
@@ -937,6 +964,15 @@ function KanbanView({
                     animate={{ opacity: 1, scale: 1 }}
                     exit={{ opacity: 0, scale: 0.95 }}
                     transition={{ duration: 0.18 }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDrop={(e) => {
+                      e.stopPropagation();
+                      if (dragId && col.status !== "completed") onMoveAt(dragId, col.status, null);
+                      clearDrag();
+                    }}
                     className="h-28 rounded-lg border-2 border-dashed border-primary/60 bg-primary/5"
                   />
                 )}
@@ -980,7 +1016,8 @@ function parseDMY(s: string): Date {
 const dotByStatus: Record<WorkStatus, string> = {
   todo: "bg-slate-400",
   in_progress: "bg-blue-500",
-  handover: "bg-amber-500",
+  blocked: "bg-amber-500",
+  handover: "bg-purple-500",
   completed: "bg-emerald-500",
 };
 
@@ -1122,31 +1159,107 @@ function CalendarView({ tasks }: { tasks: WorkItem[] }) {
 /*  Page                                                               */
 /* ------------------------------------------------------------------ */
 
-export function MyTask() {
-  const [tasks, setTasks] = React.useState<WorkItem[]>(works);
-  const [view, setView] = React.useState("list");
-  const [query, setQuery] = React.useState("");
-  const [createFor, setCreateFor] = React.useState<WorkStatus | null>(null);
-  const filtered = tasks.filter((t) =>
-    `${t.title} ${t.number}`.toLowerCase().includes(query.toLowerCase())
+function BlockedReasonDialog({
+  open,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean;
+  onClose: () => void;
+  onSubmit: (reason: string) => void;
+}) {
+  const [reason, setReason] = React.useState("");
+  React.useEffect(() => {
+    if (open) setReason("");
+  }, [open ]);
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Mark as Blocked</DialogTitle>
+          <DialogDescription>Masukkan alasan task terhambat (wajib).</DialogDescription>
+        </DialogHeader>
+        <div className="space-y-2 py-4">
+          <Label htmlFor="blocked-reason">Blocked Reason</Label>
+          <Textarea id="blocked-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="cth: Menunggu sparepart dari vendor…" rows={3} className="resize-y" autoFocus />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button onClick={() => { if (reason.trim()) onSubmit(reason.trim()); }} disabled={!reason.trim()}>Mark Blocked</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
+}
 
-  const move = (id: string, status: WorkStatus) =>
-    setTasks((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, status } : t))
-    );
+export function MyTask() {
+  const [tasks, setTasks] = React.useState<WorkItem[]>(() => {
+    seedIfEmpty();
+    return loadWorks();
+  });
+  const skipNotify = React.useRef(true);
+  React.useEffect(() => {
+    saveWorks(tasks);
+    if (skipNotify.current) {
+      skipNotify.current = false;
+      return;
+    }
+    notifyWorksUpdated();
+  }, [tasks]);
+  React.useEffect(() => {
+    const reload = () => {
+      skipNotify.current = true;
+      setTasks(loadWorks());
+    };
+    window.addEventListener("tm:works:updated", reload);
+    return () => window.removeEventListener("tm:works:updated", reload);
+  }, []);
+  const [view, setView] = React.useState("board");
+  const [createFor, setCreateFor] = React.useState<WorkStatus | null>(null);
+  const [blockedTarget, setBlockedTarget] = React.useState<{ id: string; beforeId: string | null } | null>(null);
+  const filtered = tasks;
 
-  const moveAt = (id: string, status: WorkStatus, beforeId: string | null) =>
+  // Helper: check if transition is allowed
+  const canTransitionTo = (from: WorkStatus, to: WorkStatus): boolean => {
+    if (from === "completed") return false; // Completed locked
+    if (to === "todo") return false; // Cannot go back to todo
+    if (from === "todo") return to === "in_progress" || to === "blocked";
+    if (from === "in_progress") return to === "blocked" || to === "completed";
+    if (from === "blocked") return to === "in_progress" || to === "completed";
+    return false;
+  };
+
+  const applyMove = (id: string, status: WorkStatus, beforeId: string | null, blockedReason?: string) =>
     setTasks((prev) => {
       const dragged = prev.find((t) => t.id === id);
       if (!dragged) return prev;
+      // Prevent moving completed tasks
+      if (dragged.status === "completed") return prev;
+      // Validate transition
+      if (!canTransitionTo(dragged.status, status)) return prev;
       const rest = prev.filter((t) => t.id !== id);
-      const next = { ...dragged, status };
+      const next = { ...dragged, status, ...(status === "blocked" && blockedReason ? { blockedReason } : status !== "blocked" ? { blockedReason: undefined } : {}) };
       if (!beforeId) return [...rest, next];
       const idx = rest.findIndex((t) => t.id === beforeId);
       if (idx === -1) return [...rest, next];
       return [...rest.slice(0, idx), next, ...rest.slice(idx)];
     });
+
+  const move = (id: string, status: WorkStatus) => {
+    if (status === "blocked") {
+      setBlockedTarget({ id, beforeId: null });
+      return;
+    }
+    applyMove(id, status, null);
+  };
+
+  const moveAt = (id: string, status: WorkStatus, beforeId: string | null) => {
+    if (status === "blocked") {
+      setBlockedTarget({ id, beforeId });
+      return;
+    }
+    applyMove(id, status, beforeId);
+  };
 
   const toggleCancel = (id: string) =>
     setTasks((prev) =>
@@ -1155,40 +1268,54 @@ export function MyTask() {
       )
     );
 
+  const deleteTask = (id: string) => {
+    if (!window.confirm("Hapus task ini permanen?")) return;
+    setTasks((prev) => prev.filter((t) => t.id !== id));
+  };
+
   const createWork = (f: NewWorkFields) =>
-    setTasks((prev) => [
-      {
-        id: `w-${Date.now()}`,
-        number: `TK-${String(131 + prev.length).padStart(6, "0")}`,
-        title: f.title,
-        type: "adhoc",
-        status: f.status,
-        priority: f.priority,
-        createdBy: currentUser.name,
-        assignedTo: f.assignedTo,
-        team: f.team,
-        teamId: f.teamId,
-        shift: "Shift 1",
-        dueDate: f.dueDate,
-        description: f.description,
-        progress: 0,
-        evidenceRequired: false,
-        evidences: [],
-        checklist: [],
-        note: "",
-        createdAt: "26 Sep 2026 15:00",
-        updatedAt: "26 Sep 2026 15:00",
-        activities: [],
-      },
-      ...prev,
-    ]);
+    setTasks((prev) => {
+      const uid = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      const existing = new Set(prev.map((t) => t.number));
+      let seq = 131 + prev.length;
+      let num = `TK-${String(seq).padStart(6, "0")}`;
+      while (existing.has(num)) { seq += 1; num = `TK-${String(seq).padStart(6, "0")}`; }
+      return [
+        {
+          id: `w-${uid}`,
+          number: num,
+          title: f.title,
+          type: "adhoc",
+          status: f.status,
+          priority: f.priority,
+          createdBy: currentUser.name,
+          assignedTo: f.assignedTo,
+          team: f.team,
+          teamId: f.teamId,
+          projectId: f.projectId,
+          shift: "Shift 1",
+          dueDate: f.dueDate,
+          description: f.description,
+          progress: 0,
+          evidenceRequired: false,
+          evidences: [],
+          checklist: [],
+          comments: [],
+          note: "",
+          createdAt: "26 Sep 2026 15:00",
+          updatedAt: "26 Sep 2026 15:00",
+          activities: [],
+        },
+        ...prev,
+      ];
+    });
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="My Task"
-        description="View and manage all tasks assigned to you."
-      />
+      <div className="space-y-1">
+        <h1 className="text-2xl font-semibold tracking-tight">My Task</h1>
+        <p className="text-sm text-muted-foreground">Kelola dan pantau semua tugas Anda</p>
+      </div>
       <CreateWorkDialog
         group={createFor}
         onClose={() => setCreateFor(null)}
@@ -1197,31 +1324,31 @@ export function MyTask() {
           setCreateFor(null);
         }}
       />
+      <BlockedReasonDialog
+        open={blockedTarget !== null}
+        onClose={() => setBlockedTarget(null)}
+        onSubmit={(reason) => {
+          if (blockedTarget) applyMove(blockedTarget.id, "blocked", blockedTarget.beforeId, reason);
+          setBlockedTarget(null);
+        }}
+      />
 
       {/* List / Board / Calendar */}
       <Tabs value={view} onValueChange={setView} className="space-y-3">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-          <Input
-            placeholder="Filter tasks..."
-            value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            className="sm:max-w-xs"
-          />
-          <TabsList className="w-fit sm:ml-auto">
-            <TabsTrigger value="list">
-              <List className="h-4 w-4" />
-              <span className="hidden sm:inline">List</span>
-            </TabsTrigger>
-            <TabsTrigger value="board">
-              <Columns3 className="h-4 w-4" />
-              <span className="hidden sm:inline">Board</span>
-            </TabsTrigger>
-            <TabsTrigger value="calendar">
-              <CalendarDays className="h-4 w-4" />
-              <span className="hidden sm:inline">Calendar</span>
-            </TabsTrigger>
-          </TabsList>
-        </div>
+        <TabsList className="w-fit">
+          <TabsTrigger value="board">
+            <Columns3 className="h-4 w-4" />
+            <span className="hidden sm:inline">Board</span>
+          </TabsTrigger>
+          <TabsTrigger value="list">
+            <List className="h-4 w-4" />
+            <span className="hidden sm:inline">List</span>
+          </TabsTrigger>
+          <TabsTrigger value="calendar">
+            <CalendarDays className="h-4 w-4" />
+            <span className="hidden sm:inline">Calendar</span>
+          </TabsTrigger>
+        </TabsList>
 
         <TabsContent value="list">
           <SpreadsheetView
@@ -1230,6 +1357,7 @@ export function MyTask() {
             onToggleCancel={toggleCancel}
             onOpenCreate={setCreateFor}
             onMoveAt={moveAt}
+            onDelete={deleteTask}
           />
         </TabsContent>
         <TabsContent value="board">

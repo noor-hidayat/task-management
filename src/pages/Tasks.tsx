@@ -6,12 +6,10 @@ import { PriorityBadge, StatusBadge, TypeBadge } from "@/components/status-badge
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
+import { TaskFormDialog } from "@/components/task-form-dialog";
 import { works } from "@/lib/mock";
 import type { Priority, WorkStatus } from "@/types";
 
@@ -40,75 +38,19 @@ export function Tasks() {
         title="Tasks"
         description="Ad-hoc task: Create → Assign → Execute → Complete. Created By dan Assigned To adalah field berbeda."
         actions={
-          <Dialog open={open} onOpenChange={setOpen}>
-            <DialogTrigger asChild>
-              <Button>
-                <Plus className="h-4 w-4" /> Create Task
-              </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create Ad-hoc Task</DialogTitle>
-                <DialogDescription>
-                  Supervisor membuat task untuk operator. Bisa juga untuk diri sendiri.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="grid gap-4 py-2">
-                <div className="grid gap-2">
-                  <Label htmlFor="title">Title</Label>
-                  <Input id="title" placeholder="cth: Check Machine Line 4" />
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Assigned To</Label>
-                    <Select defaultValue="op-a">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="op-a">Operator A</SelectItem>
-                        <SelectItem value="op-b">Operator B</SelectItem>
-                        <SelectItem value="op-c">Operator C</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label>Priority</Label>
-                    <Select defaultValue="medium">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="low">Low</SelectItem>
-                        <SelectItem value="medium">Medium</SelectItem>
-                        <SelectItem value="high">High</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="grid gap-2">
-                    <Label>Team</Label>
-                    <Select defaultValue="prod-a">
-                      <SelectTrigger><SelectValue /></SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="prod-a">Production A</SelectItem>
-                        <SelectItem value="maint">Maintenance</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="grid gap-2">
-                    <Label htmlFor="due">Due Date</Label>
-                    <Input id="due" type="date" defaultValue="2026-09-26" />
-                  </div>
-                </div>
-                <div className="grid gap-2">
-                  <Label htmlFor="desc">Description</Label>
-                  <Textarea id="desc" placeholder="Check machine condition and record findings..." />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
-                <Button onClick={() => setOpen(false)}>Create & Assign</Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+          <>
+            <Button onClick={() => setOpen(true)}>
+              <Plus className="h-4 w-4" /> Create Task
+            </Button>
+            <TaskFormDialog
+              open={open}
+              onOpenChange={setOpen}
+              dialogTitle="Create Ad-hoc Task"
+              dialogDescription="Supervisor membuat task untuk operator. Bisa juga untuk diri sendiri."
+              submitLabel="Create & Assign"
+              onSubmit={() => {}}
+            />
+          </>
         }
       />
 
@@ -124,9 +66,9 @@ export function Tasks() {
             <SelectTrigger className="sm:w-48"><SelectValue placeholder="Status" /></SelectTrigger>
             <SelectContent>
               <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="todo">To-Do</SelectItem>
+              <SelectItem value="todo">Not Started</SelectItem>
               <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="handover">Handover</SelectItem>
+              <SelectItem value="blocked">Blocked</SelectItem>
               <SelectItem value="completed">Completed</SelectItem>
             </SelectContent>
           </Select>

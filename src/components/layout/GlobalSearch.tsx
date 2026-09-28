@@ -16,7 +16,6 @@ const pages = [
   { title: "My Task", url: "/my-task" },
   { title: "Inbox (Handover)", url: "/inbox" },
   { title: "Notes", url: "/notes" },
-  { title: "Reporting", url: "/reporting" },
   { title: "Dashboard", url: "/" },
   { title: "Core Work", url: "/core-work" },
   { title: "Tasks", url: "/tasks" },

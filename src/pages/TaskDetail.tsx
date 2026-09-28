@@ -1,9 +1,26 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Download, FileText, Image as ImageIcon, MoreHorizontal, Plus, Send, X } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
+import {
+  AlignLeft,
+  CalendarDays,
+  CircleDot,
+  Download,
+  FileText,
+  Flag,
+  FolderKanban,
+  Image as ImageIcon,
+  ListChecks,
+  MoreHorizontal,
+  MoveLeft,
+  Paperclip,
+  Pencil,
+  Plus,
+  Send,
+  Users,
+  X,
+} from "lucide-react";
 
-import { PageHeader } from "@/components/page-header";
-import { StatusBadge } from "@/components/status-badge";
+import { PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Attachment,
@@ -11,10 +28,18 @@ import {
   AttachmentActions,
   AttachmentContent,
   AttachmentDescription,
+  AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
 } from "@/components/ui/attachment";
 import { Badge } from "@/components/ui/badge";
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -33,30 +58,83 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Field,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
-import { initials, statusLabel } from "@/lib/format";
+import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
+import { initials, statusLabel, avatarColor } from "@/lib/format";
 import { currentUser, users, works } from "@/lib/mock";
+import { loadProjects } from "@/lib/storage";
 import type { Priority, WorkStatus } from "@/types";
 
-const STATUS_ORDER: WorkStatus[] = [
-  "todo",
-  "in_progress",
-  "handover",
-  "completed",
-];
+const STATUS_ORDER: WorkStatus[] = ["todo", "in_progress", "handover", "completed"];
+
+type AttachmentItem = {
+  id: string;
+  name: string;
+  meta: string;
+  kind: "image" | "file";
+  preview?: string;
+};
+type SubTask = { id: string; title: string; done: boolean };
+type Comment = { id: string; author: string; time: string; text: string };
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** Baris display persis gaya ProjectDetail: icon + label + value (bukan input) */
+function DetailRow({
+  icon,
+  label,
+  children,
+  alignTop,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  children: React.ReactNode;
+  alignTop?: boolean;
+}) {
+  return (
+    <div className={`flex gap-3 ${alignTop ? "items-start" : "items-center"}`}>
+      <span className="h-3.5 w-3.5 shrink-0 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:mt-0.5">
+        {icon}
+      </span>
+      <span className="w-24 shrink-0 text-sm text-muted-foreground">{label}</span>
+      <div className="ml-1 min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+function SectionTitle({
+  icon,
+  title,
+  count,
+  action,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  count?: number;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <div className="flex items-center gap-2">
+        <span className="text-muted-foreground [&>svg]:h-4 [&>svg]:w-4">{icon}</span>
+        <h3 className="text-sm font-semibold leading-none tracking-tight">{title}</h3>
+        {typeof count === "number" && (
+          <Badge variant="secondary" className="font-normal">
+            {count}
+          </Badge>
+        )}
+      </div>
+      {action}
+    </div>
+  );
+}
 
 export function TaskDetail() {
   const { number } = useParams();
@@ -64,70 +142,49 @@ export function TaskDetail() {
     () => works.find((w) => w.number === number) ?? works[0],
     [number]
   );
+  const projects = useMemo(() => loadProjects(), []);
+  const project = useMemo(
+    () => projects.find((p) => p.id === base.projectId),
+    [projects, base.projectId]
+  );
 
+  // Display state — diedit lewat dialog Edit, bukan input inline
   const [title, setTitle] = useState(base.title);
   const [description, setDescription] = useState(base.description);
+  const [projectId, setProjectId] = useState(base.projectId ?? "");
+  const [priority, setPriority] = useState<Priority>(base.priority);
+  const [dueDate, setDueDate] = useState(base.dueDate);
   const [status, setStatus] = useState<WorkStatus>(base.status);
+  const [cancelled, setCancelled] = useState(!!base.cancelled);
+  const [editOpen, setEditOpen] = useState(false);
+
+  useEffect(() => {
+    setTitle(base.title);
+    setDescription(base.description);
+    setProjectId(base.projectId ?? "");
+    setPriority(base.priority);
+    setDueDate(base.dueDate);
+    setStatus(base.status);
+    setCancelled(!!base.cancelled);
+  }, [base]);
+
+  const activeProject = useMemo(
+    () => projects.find((p) => p.id === projectId),
+    [projects, projectId]
+  );
+
+  // ---- Assigned To ----
   const [assignees, setAssignees] = useState<string[]>([base.assignedTo]);
   const [assigneeDialogOpen, setAssigneeDialogOpen] = useState(false);
   const [pendingAssignees, setPendingAssignees] = useState<string[]>([]);
   const [pickerQuery, setPickerQuery] = useState("");
   const [dialogComment, setDialogComment] = useState("");
   const pickerInputRef = useRef<HTMLInputElement>(null);
-  const [priority, setPriority] = useState<Priority>(base.priority);
-  // Module — dummy dulu, nanti diganti data asli
-  const [module, setModule] = useState("");
-  const [cancelled, setCancelled] = useState(!!base.cancelled);
 
-  // Shadow di bawah header judul — hanya muncul pas scroll
-  const [stuck, setStuck] = useState(false);
   useEffect(() => {
-    const onScroll = () => setStuck(window.scrollY > 8);
-    onScroll();
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+    setAssignees([base.assignedTo]);
+  }, [base]);
 
-  // Attachments — state lokal dari evidence bawaan + file baru
-  type AttachmentItem = {
-    id: string;
-    name: string;
-    meta: string;
-    kind: "image" | "file";
-  };
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-  };
-  const [attachments, setAttachments] = useState<AttachmentItem[]>(() =>
-    base.evidences.map((e) => ({
-      id: e.id,
-      name: e.fileName,
-      meta: `${e.fileSize} • ${e.uploadedBy}`,
-      kind: /jpg|jpeg|png|gif|webp|image/i.test(`${e.fileType} ${e.fileName}`)
-        ? "image"
-        : "file",
-    }))
-  );
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const onPickFiles = (files: FileList | null) => {
-    if (!files) return;
-    const next: AttachmentItem[] = Array.from(files).map((f, i) => ({
-      id: `local-${Date.now()}-${i}`,
-      name: f.name,
-      meta: `${formatSize(f.size)} • You`,
-      kind: f.type.startsWith("image/") ? "image" : "file",
-    }));
-    setAttachments((prev) => [...prev, ...next]);
-  };
-
-  const removeAttachment = (id: string) =>
-    setAttachments((prev) => prev.filter((a) => a.id !== id));
-
-  // Assignees — popup tambah user pakai @ + komentar sekalian
-  // Rekomendasi hanya muncul saat ketik @
   const atMatch = pickerQuery.match(/@([\w ]*)$/);
   const pickerNormalized = atMatch ? atMatch[1].toLowerCase().trim() : null;
   const pickerSuggestions = useMemo(
@@ -142,7 +199,6 @@ export function TaskDetail() {
           ),
     [assignees, pendingAssignees, pickerNormalized]
   );
-
   const addPending = (name: string) => {
     const clean = name.replace(/^@/, "").trim();
     if (!clean) return;
@@ -158,10 +214,8 @@ export function TaskDetail() {
     setPickerQuery("");
     pickerInputRef.current?.focus();
   };
-
   const removePending = (name: string) =>
     setPendingAssignees((prev) => prev.filter((a) => a !== name));
-
   const openAssigneeDialog = () => {
     setPendingAssignees([]);
     setPickerQuery("");
@@ -169,38 +223,50 @@ export function TaskDetail() {
     setAssigneeDialogOpen(true);
   };
 
-  const submitAssigneeDialog = () => {
-    if (pendingAssignees.length > 0) {
-      setAssignees((prev) => [
-        ...prev,
-        ...pendingAssignees.filter((p) => !prev.includes(p)),
-      ]);
-    }
-    if (dialogComment.trim()) {
-      const clean = dialogComment.trim();
-      setComments((prev) => [
-        ...prev,
-        { id: `c-${Date.now()}`, author: currentUser.name, time: "Baru saja", text: clean },
-      ]);
-    }
-    setPendingAssignees([]);
-    setPickerQuery("");
-    setDialogComment("");
-    setAssigneeDialogOpen(false);
+  // ---- Attachment ----
+  const [attachments, setAttachments] = useState<AttachmentItem[]>(() =>
+    base.evidences.map((e) => ({
+      id: e.id,
+      name: e.fileName,
+      meta: `${e.fileSize} • ${e.uploadedBy}`,
+      kind: /jpg|jpeg|png|gif|webp|image/i.test(`${e.fileType} ${e.fileName}`)
+        ? "image"
+        : "file",
+    }))
+  );
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const onPickFiles = (files: FileList | null) => {
+    if (!files) return;
+    const next: AttachmentItem[] = Array.from(files).map((f, i) => {
+      const isImage = f.type.startsWith("image/");
+      return {
+        id: `local-${Date.now()}-${i}`,
+        name: f.name,
+        meta: `${formatSize(f.size)} • You`,
+        kind: isImage ? "image" : "file",
+        preview: isImage ? URL.createObjectURL(f) : undefined,
+      };
+    });
+    setAttachments((prev) => [...prev, ...next]);
   };
+  const removeAttachment = (id: string) =>
+    setAttachments((prev) => {
+      const target = prev.find((a) => a.id === id);
+      if (target?.preview) URL.revokeObjectURL(target.preview);
+      return prev.filter((a) => a.id !== id);
+    });
 
-  // Sub-tasks — checkbox, diinput saat create task
-  type SubTask = { id: string; title: string; done: boolean };
+  // ---- Checklist ----
   const [subTasks, setSubTasks] = useState<SubTask[]>(() =>
     base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done }))
   );
   const subDoneCount = subTasks.filter((s) => s.done).length;
-
+  const checkProgress =
+    subTasks.length === 0 ? 0 : Math.round((subDoneCount / subTasks.length) * 100);
   const toggleSubTask = (id: string) =>
     setSubTasks((prev) => prev.map((s) => (s.id === id ? { ...s, done: !s.done } : s)));
 
-  // Comments — diskusi per task, dukung @mention user lain
-  type Comment = { id: string; author: string; time: string; text: string };
+  // ---- Comments ----
   const [comments, setComments] = useState<Comment[]>([]);
   const [draft, setDraft] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
@@ -213,7 +279,6 @@ export function TaskDetail() {
     const q = mentionQuery.toLowerCase();
     return users.filter((u) => u.name.toLowerCase().includes(q)).slice(0, 3);
   }, [mentionQuery]);
-
   const updateMention = (value: string, cursor: number) => {
     const before = value.slice(0, cursor);
     const m = before.match(/@([\w ]*)$/);
@@ -225,7 +290,6 @@ export function TaskDetail() {
       setMentionQuery(null);
     }
   };
-
   const insertMention = (name: string) => {
     const cursor = commentInputRef.current?.selectionStart ?? draft.length;
     const before = draft.slice(0, mentionStart);
@@ -241,7 +305,6 @@ export function TaskDetail() {
       el.setSelectionRange(pos, pos);
     });
   };
-
   const renderWithMentions = (text: string) => {
     const names = [...users.map((u) => u.name)].sort((a, b) => b.length - a.length);
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -257,7 +320,6 @@ export function TaskDetail() {
       )
     );
   };
-
   const postComment = () => {
     const clean = draft.trim();
     if (!clean) return;
@@ -267,460 +329,474 @@ export function TaskDetail() {
     ]);
     setDraft("");
     setMentionQuery(null);
+    if (commentInputRef.current) commentInputRef.current.style.height = "auto";
+  };
+  const submitAssigneeDialog = () => {
+    if (pendingAssignees.length > 0) {
+      setAssignees((prev) => [
+        ...prev,
+        ...pendingAssignees.filter((p) => !prev.includes(p)),
+      ]);
+    }
+    if (dialogComment.trim()) {
+      setComments((prev) => [
+        ...prev,
+        {
+          id: `c-${Date.now()}`,
+          author: currentUser.name,
+          time: "Baru saja",
+          text: dialogComment.trim(),
+        },
+      ]);
+    }
+    setPendingAssignees([]);
+    setPickerQuery("");
+    setDialogComment("");
+    setAssigneeDialogOpen(false);
   };
 
   return (
-    <div className="space-y-6">
-      {/* 1. Header — sticky, tidak ikut scroll */}
-      <div
-        className={`sticky top-14 z-20 -mx-4 -mt-4 bg-background px-4 py-3 transition-shadow ${stuck ? "shadow-[0_2px_8px_-2px_rgb(0_0_0/0.12)]" : ""}`}
-      >
-      <PageHeader
-        title={
-          <>
-            <span>{title || "Untitled task"}</span>
-            <StatusBadge status={status} />
-            {cancelled && <Badge variant="destructive">Cancelled</Badge>}
-          </>
-        }
-        actions={
-          <div className="flex items-center gap-2">
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="icon" className="h-8 w-8">
-                  <MoreHorizontal className="h-4 w-4" />
-                  <span className="sr-only">More actions</span>
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                {STATUS_ORDER.filter((s) => s !== status).map((s) => (
-                  <DropdownMenuItem
-                    key={s}
-                    onClick={() => setStatus(s)}
-                  >
-                    {statusLabel[s]}
-                  </DropdownMenuItem>
-                ))}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setStatus("completed")}>
-                  Complete
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  onClick={() => setCancelled((v) => !v)}
-                >
-                  {cancelled ? "Reopen task" : "Cancel task"}
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onClick={() =>
-                    navigator.clipboard.writeText(base.number)
-                  }
-                >
-                  Copy task number
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          </div>
-        }
-      />
+    <div className="flex flex-col gap-6 lg:h-[calc(100svh-5.5rem)]">
+      {/* Breadcrumb */}
+      <div className="flex shrink-0 items-center gap-2">
+        <Button variant="ghost" size="icon" className="h-8 w-8" asChild>
+          <Link to="/tasks" aria-label="Back to Tasks">
+            <MoveLeft className="h-5 w-5" />
+          </Link>
+        </Button>
+        <Breadcrumb>
+          <BreadcrumbList>
+            <BreadcrumbItem>
+              <Link to="/tasks" className="transition-colors hover:text-foreground">
+                Tasks
+              </Link>
+            </BreadcrumbItem>
+            <BreadcrumbSeparator />
+            <BreadcrumbItem>
+              <BreadcrumbPage className="font-mono">#{base.number}</BreadcrumbPage>
+            </BreadcrumbItem>
+          </BreadcrumbList>
+        </Breadcrumb>
       </div>
 
-      {/* 2. Konten 2 kolom — form kiri, activity kanan */}
-      <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-      {/* 2. Kolom kiri */}
-      <div className="space-y-6">
-      {/* 2a. Task Information — kolom input */}
-      <section className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-        <h3 className="text-sm font-bold leading-none tracking-tight">Task Information</h3>
-        <div>
-          <FieldGroup>
-            {/* Title — Input */}
-            <Field>
-              <FieldLabel htmlFor="task-title">Task Title</FieldLabel>
-              <Input
-                id="task-title"
-                value={title}
-                onChange={(e) => setTitle(e.target.value)}
-                placeholder="cth: Check Machine Line 4"
-                autoComplete="off"
-              />
-            </Field>
+      {/* ===== Main scroll | Comments panel fixed ===== */}
+      <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-0">
+        <main className="min-w-0 flex-1 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-6">
+          <section className="space-y-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="truncate text-lg font-bold leading-none tracking-tight">
+                {title || "Untitled task"}
+              </h3>
+              {cancelled && <Badge variant="destructive">Cancelled</Badge>}
+            </div>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4" /> Edit
+              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="icon" className="h-8 w-8">
+                    <MoreHorizontal className="h-4 w-4" />
+                    <span className="sr-only">More actions</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuLabel>Move to</DropdownMenuLabel>
+                  {STATUS_ORDER.filter((s) => s !== status).map((s) => (
+                    <DropdownMenuItem key={s} onClick={() => setStatus(s)}>
+                      {statusLabel[s]}
+                    </DropdownMenuItem>
+                  ))}
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => setStatus("completed")}>
+                    Complete
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => setCancelled((v) => !v)}>
+                    {cancelled ? "Reopen task" : "Cancel task"}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem onClick={() => navigator.clipboard.writeText(base.number)}>
+                    Copy task number
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </div>
 
-            {/* Description — Textarea di bawah Task Name */}
-            <Field>
-              <FieldLabel htmlFor="task-desc">Description</FieldLabel>
-              <Textarea
-                id="task-desc"
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Tulis deskripsi pekerjaan..."
-                rows={4}
-                className="resize-y"
-              />
-            </Field>
-
-            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-              {/* Priority — Select */}
-              <Field>
-                <FieldLabel htmlFor="task-priority">Priority</FieldLabel>
-                <Select
-                  value={priority}
-                  onValueChange={(v) => setPriority(v as Priority)}
-                >
-                  <SelectTrigger id="task-priority">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-
-              {/* Module — dummy, nanti diganti data asli */}
-              <Field>
-                <FieldLabel htmlFor="task-module">Module</FieldLabel>
-                <Select value={module} onValueChange={setModule}>
-                  <SelectTrigger id="task-module">
-                    <SelectValue placeholder="Pilih module" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="module-1">Module 1</SelectItem>
-                    <SelectItem value="module-2">Module 2</SelectItem>
-                    <SelectItem value="module-3">Module 3</SelectItem>
-                    <SelectItem value="module-4">Module 4</SelectItem>
-                  </SelectContent>
-                </Select>
-              </Field>
-
+          </section>
+          {/* Status | Description | Project | Priority | Due Date | Assigned To — display rows */}
+          <div className="space-y-1.5">
+              <DetailRow icon={<CircleDot />} label="Status">
+                <span className="flex flex-wrap items-center gap-2">
+                  <StatusBadge status={status} />
+                </span>
+              </DetailRow>
+              <DetailRow icon={<AlignLeft />} label="Description" alignTop>
+                <p className="text-sm">{description || "—"}</p>
+              </DetailRow>
+              <DetailRow icon={<FolderKanban />} label="Project">
+                {activeProject ?? project ? (
+                  <Link
+                    to={`/projects/${(activeProject ?? project)!.id}`}
+                    className="text-sm font-medium hover:underline"
+                  >
+                    {(activeProject ?? project)!.name}
+                  </Link>
+                ) : (
+                  <span className="text-sm text-muted-foreground">No project</span>
+                )}
+              </DetailRow>
+              <DetailRow icon={<Flag />} label="Priority">
+                <PriorityBadge priority={priority} />
+              </DetailRow>
+              <DetailRow icon={<CalendarDays />} label="Due Date">
+                <span className="text-sm">{dueDate || "—"}</span>
+              </DetailRow>
+              <DetailRow icon={<Users />} label="Assigned To">
+                <span className="flex items-center gap-2">
+                  <span className="flex items-center -space-x-2">
+                    {assignees.map((name) => (
+                      <Avatar
+                        key={name}
+                        title={name}
+                        className="h-6 w-6 border-2 border-background"
+                      >
+                        <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+                          {initials(name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {assignees.join(", ") || "—"}
+                  </span>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6"
+                    onClick={openAssigneeDialog}
+                    aria-label="Tambah assignee"
+                  >
+                    <Plus className="h-3.5 w-3.5" />
+                  </Button>
+                </span>
+              </DetailRow>
             </div>
 
-            {/* Sub-tasks — hanya checkbox */}
-            <Field>
-              <FieldLabel>
-                Sub-tasks{" "}
-                <span className="font-normal text-muted-foreground">
-                  {subDoneCount} / {subTasks.length}
+            {/* Attachment — display row sama kayak Assigned To */}
+            <DetailRow icon={<Paperclip />} label="Attachment" alignTop>
+              <div className="space-y-2">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    onPickFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                {attachments.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
+                ) : (
+                  <AttachmentGroup>
+                    {attachments.map((a) =>
+                      a.preview ? (
+                        <Attachment key={a.id} orientation="vertical" size="sm">
+                          <AttachmentMedia variant="image">
+                            <img
+                              src={a.preview}
+                              alt={a.name}
+                              className="h-full w-full object-cover"
+                            />
+                          </AttachmentMedia>
+                          <AttachmentContent>
+                            <AttachmentTitle>{a.name}</AttachmentTitle>
+                            <AttachmentDescription>{a.meta}</AttachmentDescription>
+                          </AttachmentContent>
+                          <AttachmentActions>
+                            <AttachmentAction
+                              aria-label={`Remove ${a.name}`}
+                              onClick={() => removeAttachment(a.id)}
+                            >
+                              <X />
+                            </AttachmentAction>
+                          </AttachmentActions>
+                        </Attachment>
+                      ) : (
+                        <Attachment key={a.id} size="sm" className="w-56">
+                          <AttachmentMedia>
+                            {a.kind === "image" ? <ImageIcon /> : <FileText />}
+                          </AttachmentMedia>
+                          <AttachmentContent>
+                            <AttachmentTitle>{a.name}</AttachmentTitle>
+                            <AttachmentDescription>{a.meta}</AttachmentDescription>
+                          </AttachmentContent>
+                          <AttachmentActions>
+                            <AttachmentAction aria-label={`Download ${a.name}`}>
+                              <Download />
+                            </AttachmentAction>
+                            <AttachmentAction
+                              aria-label={`Remove ${a.name}`}
+                              onClick={() => removeAttachment(a.id)}
+                            >
+                              <X />
+                            </AttachmentAction>
+                          </AttachmentActions>
+                        </Attachment>
+                      )
+                    )}
+                  </AttachmentGroup>
+                )}
+                <span className="flex items-center gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 px-2 text-xs"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Tambah file
+                  </Button>
+                  {attachments.length > 0 && (
+                    <span className="text-xs text-muted-foreground">
+                      {attachments.length} file
+                    </span>
+                  )}
                 </span>
-              </FieldLabel>
-              {subTasks.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Belum ada sub-task.
-                </p>
-              ) : (
-                <div className="space-y-1.5">
-                  {subTasks.map((s) => (
-                    <Field
-                      key={s.id}
-                      orientation="horizontal"
-                      className="border-0 bg-transparent p-0 shadow-none"
-                    >
-                      <Checkbox
-                        checked={s.done}
-                        onCheckedChange={() => toggleSubTask(s.id)}
-                        aria-label={s.title}
-                        id={`sub-${s.id}`}
-                      />
-                      <label
-                        htmlFor={`sub-${s.id}`}
-                        className={`flex-1 cursor-pointer text-sm ${s.done ? "text-muted-foreground line-through" : ""}`}
+              </div>
+            </DetailRow>
+
+            {/* Checklist — tanpa kotak */}
+            <section className="space-y-3">
+              <SectionTitle icon={<ListChecks />} title="Checklist" count={subTasks.length} />
+              {subTasks.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <Progress value={checkProgress} className="h-1.5 flex-1" />
+                    <span className="shrink-0">
+                      {subDoneCount}/{subTasks.length} · {checkProgress}%
+                    </span>
+                  </div>
+                  <ul className="space-y-1">
+                    {subTasks.map((s) => (
+                      <li
+                        key={s.id}
+                        className="group flex items-center gap-2.5 rounded-md px-1 py-1 hover:bg-muted/50"
                       >
-                        {s.title}
-                      </label>
-                    </Field>
-                  ))}
+                        <Checkbox
+                          checked={s.done}
+                          onCheckedChange={() => toggleSubTask(s.id)}
+                          aria-label={s.title}
+                          id={`sub-${s.id}`}
+                        />
+                        <label
+                          htmlFor={`sub-${s.id}`}
+                          className={`flex-1 cursor-pointer text-sm ${
+                            s.done ? "text-muted-foreground line-through" : ""
+                          }`}
+                        >
+                          {s.title}
+                        </label>
+                      </li>
+                    ))}
+                  </ul>
                 </div>
               )}
-            </Field>
-          </FieldGroup>
-        </div>
-      </section>
+              {subTasks.length === 0 && (
+                <p className="text-sm text-muted-foreground">Belum ada checklist.</p>
+              )}
+              <p className="text-xs text-muted-foreground">
+                Tambah / ubah checklist lewat tombol Edit.
+              </p>
+            </section>
+            <div className="border-t" />
 
-      {/* 2b. Comments */}
-      <section className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-bold leading-none tracking-tight">
-            Comments
-          </h3>
-          <Badge variant="secondary" className="font-normal">
-            {comments.length}
-          </Badge>
-        </div>
-        {comments.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Belum ada komentar.
-          </p>
-        ) : (
-          <ul className="space-y-4">
-            {comments.map((c) => (
-              <li key={c.id} className="flex gap-2.5">
-                <Avatar className="h-7 w-7 shrink-0">
-                  <AvatarFallback className="text-[10px]">
-                    {initials(c.author)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-xs font-medium">{c.author}</span>
-                    <span className="text-xs text-muted-foreground">{c.time}</span>
-                  </div>
-                  <p className="mt-0.5 text-sm whitespace-pre-wrap">{renderWithMentions(c.text)}</p>
-                </div>
-              </li>
-            ))}
-          </ul>
-        )}
-        <Field>
-          <FieldLabel htmlFor="task-comment">Tulis komentar</FieldLabel>
-          <div className="relative">
-          <Textarea
-            ref={commentInputRef}
-            id="task-comment"
-            value={draft}
-            onChange={(e) => {
-              setDraft(e.target.value);
-              updateMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
-            }}
-            onKeyDown={(e) => {
-              if (mentionQuery !== null && mentionSuggestions.length > 0) {
-                if (e.key === "ArrowDown") {
-                  e.preventDefault();
-                  setMentionActive((i) => (i + 1) % mentionSuggestions.length);
-                  return;
-                }
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  setMentionActive((i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length);
-                  return;
-                }
-                if (e.key === "Enter" || e.key === "Tab") {
-                  e.preventDefault();
-                  insertMention(mentionSuggestions[mentionActive]?.name ?? mentionSuggestions[0].name);
-                  return;
-                }
-                if (e.key === "Escape") {
-                  setMentionQuery(null);
-                  return;
-                }
-              }
-              if (e.key === "Enter" && !e.shiftKey) {
-                e.preventDefault();
-                postComment();
-              }
-            }}
-            onBlur={() => {
-              setTimeout(() => setMentionQuery(null), 120);
-            }}
-            placeholder="Tulis komentar… ketik @ untuk mention user"
-            rows={3}
-            className="resize-y"
-          />
-          {mentionQuery !== null && mentionSuggestions.length > 0 && (
-            <div className="absolute right-0 left-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover shadow-md">
-              {mentionSuggestions.map((u, i) => (
-                <button
-                  key={u.id}
-                  type="button"
-                  onMouseDown={(e) => {
-                    e.preventDefault();
-                    insertMention(u.name);
-                  }}
-                  className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm ${i === mentionActive ? "bg-accent" : ""}`}
-                >
-                  <Avatar className="h-6 w-6">
-                    <AvatarFallback className="text-[10px]">
-                      {initials(u.name)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="flex-1 truncate font-medium">{u.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    @{u.name.toLowerCase().replace(/\s+/g, "")}
-                  </span>
-                </button>
-              ))}
+            {/* Activity — ikut scroll di Main Content */}
+            <section className="space-y-4">
+              <SectionTitle title="Activity" icon={<CircleDot />} count={base.activities.length} />
+              {base.activities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
+              ) : (
+                <ol className="relative grid gap-4 border-l pl-4 sm:grid-cols-2 lg:grid-cols-3">
+                  {base.activities.map((a) => (
+                    <li key={a.id} className="relative">
+                      <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-5 w-5">
+                          <AvatarFallback className={`text-[8px] ${avatarColor(a.actor)}`}>
+                            {initials(a.actor)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-xs font-medium">{a.actor}</span>
+                      </div>
+                      <p className="mt-1 text-sm">{a.text}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{a.at}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          </main>
+
+          {/* Comments panel kanan — fixed, hanya list yang scroll */}
+          <aside className="flex min-h-0 flex-col gap-4 lg:w-[360px] lg:shrink-0 lg:border-l lg:pl-6">
+            <div className="shrink-0">
+              <SectionTitle title="Comments" icon={<AlignLeft />} count={comments.length} />
             </div>
-          )}
-          </div>
-        </Field>
-        <div className="flex justify-end">
-          <Button size="sm" onClick={postComment} disabled={!draft.trim()}>
-            <Send className="h-4 w-4" /> Kirim
-          </Button>
-        </div>
-      </section>
-      </div>
-
-      {/* 3. Kolom kanan */}
-      <div className="space-y-6">
-      {/* 3a. Assignees — avatar group + tombol plus */}
-      <section className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold leading-none tracking-tight">
-              Assignees
-            </h3>
-            <Badge variant="secondary" className="font-normal">
-              {assignees.length}
-            </Badge>
-          </div>
-          <Button
-            size="icon"
-            variant="outline"
-            className="h-8 w-8"
-            onClick={openAssigneeDialog}
-          >
-            <Plus className="h-4 w-4" />
-            <span className="sr-only">Tambah assignee</span>
-          </Button>
-        </div>
-        {assignees.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Belum ada assignee.</p>
-        ) : (
-          <div className="flex -space-x-2">
-            {assignees.slice(0, 5).map((name) => (
-              <Avatar key={name} title={name} className="h-9 w-9 ring-2 ring-card">
-                <AvatarFallback className="text-[10px]">
-                  {initials(name)}
-                </AvatarFallback>
-              </Avatar>
-            ))}
-            {assignees.length > 5 && (
-              <Avatar className="h-9 w-9 ring-2 ring-card">
-                <AvatarFallback className="bg-muted text-[10px]">
-                  +{assignees.length - 5}
-                </AvatarFallback>
-              </Avatar>
-            )}
-          </div>
-        )}
-      </section>
-
-      {/* 3b. Attachments — di bawah Assignees */}
-      <section className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <h3 className="text-sm font-semibold leading-none tracking-tight">
-              Attachments
-            </h3>
-            <Badge variant="secondary" className="font-normal">
-              {attachments.length}
-            </Badge>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <Plus className="h-4 w-4" /> Upload
-          </Button>
-        </div>
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            onPickFiles(e.target.files);
-            e.target.value = "";
-          }}
-        />
-        {attachments.length === 0 ? (
-          <Attachment
-            state="idle"
-            size="sm"
-            className="w-full cursor-pointer"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <AttachmentMedia>
-              <Plus />
-            </AttachmentMedia>
-            <AttachmentContent>
-              <AttachmentTitle>Upload file</AttachmentTitle>
-              <AttachmentDescription>PNG, JPG, PDF…</AttachmentDescription>
-            </AttachmentContent>
-          </Attachment>
-        ) : (
-          <div className="space-y-2">
-            {attachments.map((a) => (
-              <Attachment key={a.id} size="sm" className="w-full">
-                <AttachmentMedia>
-                  {a.kind === "image" ? <ImageIcon /> : <FileText />}
-                </AttachmentMedia>
-                <AttachmentContent>
-                  <AttachmentTitle>{a.name}</AttachmentTitle>
-                  <AttachmentDescription>{a.meta}</AttachmentDescription>
-                </AttachmentContent>
-                <AttachmentActions>
-                  <AttachmentAction aria-label={`Download ${a.name}`}>
-                    <Download />
-                  </AttachmentAction>
-                  <AttachmentAction
-                    aria-label={`Remove ${a.name}`}
-                    onClick={() => removeAttachment(a.id)}
+            <div className="max-h-96 min-h-0 flex-1 overflow-y-auto pr-1 lg:max-h-none">
+              {comments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
+              ) : (
+                <ul className="space-y-4">
+                  {comments.map((c) => (
+                    <li key={c.id} className="flex gap-2.5">
+                      <Avatar className="h-7 w-7 shrink-0">
+                        <AvatarFallback className={`text-[10px] ${avatarColor(c.author)}`}>
+                          {initials(c.author)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1 rounded-lg bg-muted/50 px-3 py-2">
+                        <div className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-xs font-medium">{c.author}</span>
+                          <span className="text-xs text-muted-foreground">{c.time}</span>
+                        </div>
+                        <p className="mt-0.5 text-sm whitespace-pre-wrap">
+                          {renderWithMentions(c.text)}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <div className="shrink-0">
+              <div className="relative">
+                <div className="flex items-center gap-2 rounded-xl border bg-background p-2 focus-within:ring-1 focus-within:ring-ring">
+                  <Textarea
+                    ref={commentInputRef}
+                    id="task-comment"
+                    aria-label="Add comment"
+                    value={draft}
+                    onChange={(e) => {
+                      setDraft(e.target.value);
+                      updateMention(
+                        e.target.value,
+                        e.target.selectionStart ?? e.target.value.length
+                      );
+                      const el = e.target as HTMLTextAreaElement;
+                      el.style.height = "auto";
+                      el.style.height = `${Math.min(el.scrollHeight, 112)}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (mentionQuery !== null && mentionSuggestions.length > 0) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          setMentionActive((i) => (i + 1) % mentionSuggestions.length);
+                          return;
+                        }
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          setMentionActive(
+                            (i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length
+                          );
+                          return;
+                        }
+                        if (e.key === "Enter" || e.key === "Tab") {
+                          e.preventDefault();
+                          insertMention(
+                            mentionSuggestions[mentionActive]?.name ?? mentionSuggestions[0].name
+                          );
+                          return;
+                        }
+                        if (e.key === "Escape") {
+                          setMentionQuery(null);
+                          return;
+                        }
+                      }
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        postComment();
+                      }
+                    }}
+                    onBlur={() => {
+                      setTimeout(() => setMentionQuery(null), 120);
+                    }}
+                    placeholder="add comment..."
+                    rows={1}
+                    className="h-9 max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
+                  />
+                  <Button
+                    size="icon"
+                    className="h-9 w-9 shrink-0 rounded-lg"
+                    onClick={postComment}
+                    disabled={!draft.trim()}
+                    aria-label="Send comment"
+                    title="Kirim"
                   >
-                    <X />
-                  </AttachmentAction>
-                </AttachmentActions>
-              </Attachment>
-            ))}
-            <Attachment
-              state="idle"
-              size="sm"
-              className="w-full cursor-pointer"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <AttachmentMedia>
-                <Plus />
-              </AttachmentMedia>
-              <AttachmentContent>
-                <AttachmentTitle>Tambah file</AttachmentTitle>
-                <AttachmentDescription>Klik untuk upload</AttachmentDescription>
-              </AttachmentContent>
-            </Attachment>
-          </div>
-        )}
-      </section>
-
-      {/* 3c. Activity — paling bawah */}
-      <aside className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
-        <div className="flex items-center gap-2">
-          <h3 className="text-sm font-semibold leading-none tracking-tight">
-            Activity
-          </h3>
-          <Badge variant="secondary" className="font-normal">
-            {base.activities.length}
-          </Badge>
-        </div>
-        {base.activities.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            Belum ada aktivitas.
-          </p>
-        ) : (
-          <ol className="relative space-y-4 border-l pl-4">
-            {base.activities.map((a) => (
-              <li key={a.id} className="relative">
-                <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
-                <div className="flex items-center gap-2">
-                  <Avatar className="h-5 w-5">
-                    <AvatarFallback className="text-[8px]">
-                      {initials(a.actor)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="text-xs font-medium">{a.actor}</span>
+                    <Send className="h-4 w-4" />
+                  </Button>
                 </div>
-                <p className="mt-1 text-sm">{a.text}</p>
-                <p className="mt-0.5 text-xs text-muted-foreground">{a.at}</p>
-              </li>
-            ))}
-          </ol>
-        )}
-      </aside>
-      </div>
-      </div>
+                {mentionQuery !== null && mentionSuggestions.length > 0 && (
+                  <div className="absolute right-0 bottom-full left-0 z-50 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
+                    {mentionSuggestions.map((u, i) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          insertMention(u.name);
+                        }}
+                        className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm ${
+                          i === mentionActive ? "bg-accent" : ""
+                        }`}
+                      >
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-[10px]">
+                            {initials(u.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="flex-1 truncate font-medium">{u.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          @{u.name.toLowerCase().replace(/\s+/g, "")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </aside>
+        </div>
 
-      {/* Popup tambah assignee pakai @ + komentar sekalian */}
+      {/* Edit Task — popup sama persis kayak Create Task */}
+      <TaskFormDialog
+        open={editOpen}
+        onOpenChange={setEditOpen}
+        dialogTitle="Edit Task"
+        dialogDescription="Ubah task — form yang sama seperti create task."
+        submitLabel="Simpan"
+        showAssignee={false}
+        showTeam={false}
+        initial={{
+          title,
+          description,
+          projectId,
+          priority,
+          dueISO: dmyToISO(dueDate),
+          checklist: subTasks,
+        }}
+        onSubmit={(v) => {
+          setTitle(v.title);
+          setDescription(v.description);
+          setProjectId(v.projectId);
+          setPriority(v.priority);
+          setDueDate(toDMY(v.dueISO) || "—");
+          setSubTasks(v.checklist);
+        }}
+      />
+
+      {/* Popup tambah assignee */}
       <Dialog open={assigneeDialogOpen} onOpenChange={setAssigneeDialogOpen}>
         <DialogContent>
           <DialogHeader>
@@ -741,9 +817,7 @@ export function TaskDetail() {
                       className="inline-flex items-center gap-1.5 py-1 pr-1 pl-1.5 font-normal"
                     >
                       <Avatar className="h-4 w-4">
-                        <AvatarFallback className="text-[8px]">
-                          {initials(name)}
-                        </AvatarFallback>
+                        <AvatarFallback className="text-[8px]">{initials(name)}</AvatarFallback>
                       </Avatar>
                       <span className="max-w-32 truncate">{name}</span>
                       <button
@@ -759,57 +833,55 @@ export function TaskDetail() {
                 </div>
               )}
               <div className="relative">
-              <Input
-                ref={pickerInputRef}
-                id="assignee-picker"
-                value={pickerQuery}
-                onChange={(e) => setPickerQuery(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
-                    e.preventDefault();
-                    if (pickerSuggestions.length > 0) {
-                      addPending(pickerSuggestions[0].name);
-                    } else if (pickerQuery.trim()) {
-                      addPending(pickerQuery);
+                <Input
+                  ref={pickerInputRef}
+                  id="assignee-picker"
+                  value={pickerQuery}
+                  onChange={(e) => setPickerQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+                      e.preventDefault();
+                      if (pickerSuggestions.length > 0) {
+                        addPending(pickerSuggestions[0].name);
+                      } else if (pickerQuery.trim()) {
+                        addPending(pickerQuery);
+                      }
+                    } else if (
+                      e.key === "Backspace" &&
+                      pickerQuery === "" &&
+                      pendingAssignees.length > 0
+                    ) {
+                      removePending(pendingAssignees[pendingAssignees.length - 1]);
                     }
-                  } else if (
-                    e.key === "Backspace" &&
-                    pickerQuery === "" &&
-                    pendingAssignees.length > 0
-                  ) {
-                    removePending(pendingAssignees[pendingAssignees.length - 1]);
-                  }
-                }}
-                placeholder="Ketik @username… cth: @Operator B"
-                autoComplete="off"
-              />
-              {pickerSuggestions.length > 0 && (
-                <div className="absolute right-0 left-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover shadow-md">
-                  {pickerSuggestions.slice(0, 3).map((u) => (
-                    <button
-                      key={u.id}
-                      type="button"
-                      onMouseDown={(e) => {
-                        e.preventDefault();
-                        addPending(u.name);
-                      }}
-                      className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
-                    >
-                      <Avatar className="h-6 w-6">
-                        <AvatarFallback className="text-[10px]">
-                          {initials(u.name)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="flex-1 truncate font-medium">
-                        {u.name}
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        @{u.name.toLowerCase().replace(/\s+/g, "")}
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              )}
+                  }}
+                  placeholder="Ketik @username… cth: @Operator B"
+                  autoComplete="off"
+                />
+                {pickerSuggestions.length > 0 && (
+                  <div className="absolute right-0 left-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover shadow-md">
+                    {pickerSuggestions.slice(0, 3).map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          addPending(u.name);
+                        }}
+                        className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
+                      >
+                        <Avatar className="h-6 w-6">
+                          <AvatarFallback className="text-[10px]">
+                            {initials(u.name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="flex-1 truncate font-medium">{u.name}</span>
+                        <span className="text-xs text-muted-foreground">
+                          @{u.name.toLowerCase().replace(/\s+/g, "")}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </Field>
             <Field>

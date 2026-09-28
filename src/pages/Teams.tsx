@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { PageHeader } from "@/components/page-header";
 import { teams, users } from "@/lib/mock";
+import { initials } from "@/lib/format";
 
 export function Teams() {
   const nameOf = (id: string) => users.find((u) => u.id === id)?.name ?? id;
@@ -34,7 +35,7 @@ export function Teams() {
                   if (!u) return null;
                   return (
                     <div key={m} className="flex items-center gap-3 rounded-lg border p-2 text-sm">
-                      <Avatar className="h-8 w-8"><AvatarFallback className="text-xs">{u.initials}</AvatarFallback></Avatar>
+                      <Avatar className="h-8 w-8"><AvatarFallback className="text-xs">{initials(u.name)}</AvatarFallback></Avatar>
                       <span className="flex-1 font-medium">{u.name}</span>
                       <Badge variant="outline">{u.role}</Badge>
                     </div>
