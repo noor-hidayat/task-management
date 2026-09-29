@@ -14,8 +14,6 @@ const badgeVariants = cva(
         outline: "text-foreground",
         todo: "border-transparent bg-slate-500/15 text-slate-600 dark:text-slate-400",
         progress: "border-transparent bg-blue-500/15 text-blue-700 dark:text-blue-400",
-        blocked: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
-        handover: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",
         completed: "border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
         high: "border-transparent bg-red-500/15 text-red-700 dark:text-red-400",
         medium: "border-transparent bg-amber-500/15 text-amber-700 dark:text-amber-400",

@@ -1,26 +1,20 @@
-import type { Priority, WorkStatus } from "@/types";
+import type { IssueStatus, Priority, WorkStatus } from "@/types";
 
 export const statusLabel: Record<WorkStatus, string> = {
   todo: "Not Started",
   in_progress: "In Progress",
-  blocked: "Blocked",
-  handover: "Handover",
   completed: "Completed",
 };
 
-export const statusVariant: Record<WorkStatus, "todo" | "progress" | "blocked" | "handover" | "completed"> = {
+export const statusVariant: Record<WorkStatus, "todo" | "progress" | "completed"> = {
   todo: "todo",
   in_progress: "progress",
-  blocked: "blocked",
-  handover: "handover",
   completed: "completed",
 };
 
 export const groupLabel: Record<WorkStatus, string> = {
   todo: "To Do",
   in_progress: "In Progress",
-  blocked: "Blocked",
-  handover: "Handover",
   completed: "Completed",
 };
 
@@ -28,6 +22,13 @@ export const priorityLabel: Record<Priority, string> = {
   low: "Low",
   medium: "Medium",
   high: "High",
+};
+
+export const issueStatusLabel: Record<IssueStatus, string> = {
+  open: "Open",
+  in_progress: "In Progress",
+  on_hold: "On Hold",
+  closed: "Closed",
 };
 
 export function initials(name: string) {

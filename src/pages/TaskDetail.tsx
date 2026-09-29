@@ -3,18 +3,19 @@ import { Link, useParams } from "react-router-dom";
 import {
   AlignLeft,
   CalendarDays,
+  CheckCircle2,
+  ChevronDown,
   CircleDot,
   Download,
   FileText,
   Flag,
-  FolderKanban,
   Image as ImageIcon,
   ListChecks,
-  MoreHorizontal,
   MoveLeft,
   Paperclip,
   Pencil,
-  Plus,
+  Play,
+  RotateCcw,
   Send,
   Users,
   X,
@@ -31,7 +32,9 @@ import {
   AttachmentGroup,
   AttachmentMedia,
   AttachmentTitle,
+  AttachmentTrigger,
 } from "@/components/ui/attachment";
+import { AttachmentPreviewDialog } from "@/components/attachment-preview";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -54,8 +57,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -63,12 +64,11 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
-import { initials, statusLabel, avatarColor } from "@/lib/format";
-import { currentUser, users, works } from "@/lib/mock";
-import { loadProjects } from "@/lib/storage";
+import { RichTextView, extractChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
+import { initials, avatarColor } from "@/lib/format";
+import { currentUser, users } from "@/lib/mock";
+import { loadWorks } from "@/lib/storage";
 import type { Priority, WorkStatus } from "@/types";
-
-const STATUS_ORDER: WorkStatus[] = ["todo", "in_progress", "handover", "completed"];
 
 type AttachmentItem = {
   id: string;
@@ -76,6 +76,9 @@ type AttachmentItem = {
   meta: string;
   kind: "image" | "file";
   preview?: string;
+  /** URL untuk preview/unduh (object URL file lokal / dataUrl tersimpan). */
+  url?: string;
+  mime?: string;
 };
 type SubTask = { id: string; title: string; done: boolean };
 type Comment = { id: string; author: string; time: string; text: string };
@@ -86,7 +89,7 @@ function formatSize(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/** Baris display persis gaya ProjectDetail: icon + label + value (bukan input) */
+/** Baris display: icon + label + value (bukan input) */
 function DetailRow({
   icon,
   label,
@@ -138,40 +141,35 @@ function SectionTitle({
 
 export function TaskDetail() {
   const { number } = useParams();
+  const [allWorks, setAllWorks] = useState(() => loadWorks());
+  useEffect(() => {
+    setAllWorks(loadWorks());
+    const reload = () => setAllWorks(loadWorks());
+    window.addEventListener("tm:works:updated", reload);
+    return () => window.removeEventListener("tm:works:updated", reload);
+  }, [number]);
   const base = useMemo(
-    () => works.find((w) => w.number === number) ?? works[0],
-    [number]
+    () => allWorks.find((w) => w.number === number) ?? allWorks[0],
+    [allWorks, number]
   );
-  const projects = useMemo(() => loadProjects(), []);
-  const project = useMemo(
-    () => projects.find((p) => p.id === base.projectId),
-    [projects, base.projectId]
-  );
-
   // Display state — diedit lewat dialog Edit, bukan input inline
   const [title, setTitle] = useState(base.title);
   const [description, setDescription] = useState(base.description);
-  const [projectId, setProjectId] = useState(base.projectId ?? "");
   const [priority, setPriority] = useState<Priority>(base.priority);
   const [dueDate, setDueDate] = useState(base.dueDate);
   const [status, setStatus] = useState<WorkStatus>(base.status);
   const [cancelled, setCancelled] = useState(!!base.cancelled);
   const [editOpen, setEditOpen] = useState(false);
+  const [completeOpen, setCompleteOpen] = useState(false);
 
   useEffect(() => {
     setTitle(base.title);
     setDescription(base.description);
-    setProjectId(base.projectId ?? "");
     setPriority(base.priority);
     setDueDate(base.dueDate);
     setStatus(base.status);
     setCancelled(!!base.cancelled);
   }, [base]);
-
-  const activeProject = useMemo(
-    () => projects.find((p) => p.id === projectId),
-    [projects, projectId]
-  );
 
   // ---- Assigned To ----
   const [assignees, setAssignees] = useState<string[]>([base.assignedTo]);
@@ -232,34 +230,71 @@ export function TaskDetail() {
       kind: /jpg|jpeg|png|gif|webp|image/i.test(`${e.fileType} ${e.fileName}`)
         ? "image"
         : "file",
+      url: e.dataUrl,
+      mime: e.fileType,
     }))
   );
+  const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const completeFileRef = useRef<HTMLInputElement>(null);
   const onPickFiles = (files: FileList | null) => {
     if (!files) return;
     const next: AttachmentItem[] = Array.from(files).map((f, i) => {
       const isImage = f.type.startsWith("image/");
+      const url = URL.createObjectURL(f);
       return {
         id: `local-${Date.now()}-${i}`,
         name: f.name,
         meta: `${formatSize(f.size)} • You`,
         kind: isImage ? "image" : "file",
-        preview: isImage ? URL.createObjectURL(f) : undefined,
+        preview: isImage ? url : undefined,
+        url,
+        mime: f.type,
       };
     });
     setAttachments((prev) => [...prev, ...next]);
+  };
+  const downloadItem = (a: AttachmentItem) => {
+    if (!a.url) return;
+    const el = document.createElement("a");
+    el.href = a.url;
+    el.download = a.name;
+    el.click();
   };
   const removeAttachment = (id: string) =>
     setAttachments((prev) => {
       const target = prev.find((a) => a.id === id);
       if (target?.preview) URL.revokeObjectURL(target.preview);
+      if (target?.url && target.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
       return prev.filter((a) => a.id !== id);
     });
 
-  // ---- Checklist ----
+  // ---- Checklist (gabungan tersimpan + hasil tombol checklist di description) ----
+  const mergeChecklist = (stored: SubTask[], html: string): SubTask[] => {
+    const next = [...stored];
+    const have = new Set(stored.map((s) => s.title.toLowerCase()));
+    extractChecklist(html).forEach((t, i) => {
+      if (!have.has(t.title.toLowerCase())) {
+        have.add(t.title.toLowerCase());
+        next.push({ id: `desc-${Date.now()}-${i}`, title: t.title, done: t.done });
+      }
+    });
+    return next;
+  };
   const [subTasks, setSubTasks] = useState<SubTask[]>(() =>
-    base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done }))
+    mergeChecklist(
+      base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
+      base.description
+    )
   );
+  useEffect(() => {
+    setSubTasks(
+      mergeChecklist(
+        base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
+        base.description
+      )
+    );
+  }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
   const subDoneCount = subTasks.filter((s) => s.done).length;
   const checkProgress =
     subTasks.length === 0 ? 0 : Math.round((subDoneCount / subTasks.length) * 100);
@@ -391,61 +426,51 @@ export function TaskDetail() {
               {cancelled && <Badge variant="destructive">Cancelled</Badge>}
             </div>
             <div className="flex items-center gap-2">
-              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
-                <Pencil className="h-4 w-4" /> Edit
-              </Button>
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="icon" className="h-8 w-8">
-                    <MoreHorizontal className="h-4 w-4" />
-                    <span className="sr-only">More actions</span>
+                  <Button variant="outline" size="sm">
+                    Action <ChevronDown className="h-4 w-4" />
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                  <DropdownMenuLabel>Move to</DropdownMenuLabel>
-                  {STATUS_ORDER.filter((s) => s !== status).map((s) => (
-                    <DropdownMenuItem key={s} onClick={() => setStatus(s)}>
-                      {statusLabel[s]}
+                  {status === "completed" ? (
+                    <DropdownMenuItem onClick={() => setStatus("in_progress")}>
+                      <RotateCcw className="h-4 w-4" /> Reopen Task
                     </DropdownMenuItem>
-                  ))}
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => setStatus("completed")}>
-                    Complete
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={() => setCancelled((v) => !v)}>
-                    {cancelled ? "Reopen task" : "Cancel task"}
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem onClick={() => navigator.clipboard.writeText(base.number)}>
-                    Copy task number
-                  </DropdownMenuItem>
+                  ) : (
+                    <>
+                      <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                        <Pencil className="h-4 w-4" /> Edit Task
+                      </DropdownMenuItem>
+                      {status === "todo" ? (
+                        <DropdownMenuItem onClick={() => setStatus("in_progress")}>
+                          <Play className="h-4 w-4" /> Start Task
+                        </DropdownMenuItem>
+                      ) : (
+                        <DropdownMenuItem onClick={() => setCompleteOpen(true)}>
+                          <CheckCircle2 className="h-4 w-4" /> Complete Task
+                        </DropdownMenuItem>
+                      )}
+                      <DropdownMenuItem onClick={openAssigneeDialog}>
+                        <Users className="h-4 w-4" /> Assigned To
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
+                        <Paperclip className="h-4 w-4" /> Add Attachment
+                      </DropdownMenuItem>
+                    </>
+                  )}
                 </DropdownMenuContent>
               </DropdownMenu>
             </div>
           </div>
 
           </section>
-          {/* Status | Description | Project | Priority | Due Date | Assigned To — display rows */}
+          {/* Status | Priority | Due Date | Assigned To — display rows */}
           <div className="space-y-1.5">
               <DetailRow icon={<CircleDot />} label="Status">
                 <span className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={status} />
                 </span>
-              </DetailRow>
-              <DetailRow icon={<AlignLeft />} label="Description" alignTop>
-                <p className="text-sm">{description || "—"}</p>
-              </DetailRow>
-              <DetailRow icon={<FolderKanban />} label="Project">
-                {activeProject ?? project ? (
-                  <Link
-                    to={`/projects/${(activeProject ?? project)!.id}`}
-                    className="text-sm font-medium hover:underline"
-                  >
-                    {(activeProject ?? project)!.name}
-                  </Link>
-                ) : (
-                  <span className="text-sm text-muted-foreground">No project</span>
-                )}
               </DetailRow>
               <DetailRow icon={<Flag />} label="Priority">
                 <PriorityBadge priority={priority} />
@@ -460,26 +485,17 @@ export function TaskDetail() {
                       <Avatar
                         key={name}
                         title={name}
-                        className="h-6 w-6 border-2 border-background"
+                        className="h-6 w-6 cursor-default border-2 border-background"
                       >
                         <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
                           {initials(name)}
                         </AvatarFallback>
                       </Avatar>
                     ))}
+                    {assignees.length === 0 && (
+                      <span className="text-sm text-muted-foreground">—</span>
+                    )}
                   </span>
-                  <span className="text-sm text-muted-foreground">
-                    {assignees.join(", ") || "—"}
-                  </span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={openAssigneeDialog}
-                    aria-label="Tambah assignee"
-                  >
-                    <Plus className="h-3.5 w-3.5" />
-                  </Button>
                 </span>
               </DetailRow>
             </div>
@@ -503,7 +519,8 @@ export function TaskDetail() {
                   <AttachmentGroup>
                     {attachments.map((a) =>
                       a.preview ? (
-                        <Attachment key={a.id} orientation="vertical" size="sm">
+                        <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
+                          <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
                           <AttachmentMedia variant="image">
                             <img
                               src={a.preview}
@@ -525,7 +542,8 @@ export function TaskDetail() {
                           </AttachmentActions>
                         </Attachment>
                       ) : (
-                        <Attachment key={a.id} size="sm" className="w-56">
+                        <Attachment key={a.id} size="sm" className="w-56 cursor-pointer" title="Preview">
+                          <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
                           <AttachmentMedia>
                             {a.kind === "image" ? <ImageIcon /> : <FileText />}
                           </AttachmentMedia>
@@ -534,9 +552,11 @@ export function TaskDetail() {
                             <AttachmentDescription>{a.meta}</AttachmentDescription>
                           </AttachmentContent>
                           <AttachmentActions>
-                            <AttachmentAction aria-label={`Download ${a.name}`}>
-                              <Download />
-                            </AttachmentAction>
+                            {a.url && (
+                              <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
+                                <Download />
+                              </AttachmentAction>
+                            )}
                             <AttachmentAction
                               aria-label={`Remove ${a.name}`}
                               onClick={() => removeAttachment(a.id)}
@@ -549,23 +569,16 @@ export function TaskDetail() {
                     )}
                   </AttachmentGroup>
                 )}
-                <span className="flex items-center gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="h-7 px-2 text-xs"
-                    onClick={() => fileInputRef.current?.click()}
-                  >
-                    <Plus className="h-3.5 w-3.5" /> Tambah file
-                  </Button>
-                  {attachments.length > 0 && (
-                    <span className="text-xs text-muted-foreground">
-                      {attachments.length} file
-                    </span>
-                  )}
-                </span>
               </div>
             </DetailRow>
+
+            {/* Description — label di atas, konten full-width */}
+            <section className="space-y-2">
+              <SectionTitle icon={<AlignLeft />} title="Description" />
+              <div className="rounded-lg border bg-muted/30 px-3 py-2">
+                <RichTextView html={description} />
+              </div>
+            </section>
 
             {/* Checklist — tanpa kotak */}
             <section className="space-y-3">
@@ -618,7 +631,7 @@ export function TaskDetail() {
               {base.activities.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
               ) : (
-                <ol className="relative grid gap-4 border-l pl-4 sm:grid-cols-2 lg:grid-cols-3">
+                <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
                   {base.activities.map((a) => (
                     <li key={a.id} className="relative">
                       <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
@@ -781,20 +794,89 @@ export function TaskDetail() {
         initial={{
           title,
           description,
-          projectId,
           priority,
           dueISO: dmyToISO(dueDate),
           checklist: subTasks,
         }}
         onSubmit={(v) => {
+          const cleanDesc = stripChecklist(v.description);
           setTitle(v.title);
-          setDescription(v.description);
-          setProjectId(v.projectId);
+          setDescription(isEmptyHtml(cleanDesc) ? "" : cleanDesc);
           setPriority(v.priority);
           setDueDate(toDMY(v.dueISO) || "—");
-          setSubTasks(v.checklist);
+          setSubTasks(mergeChecklist(v.checklist, v.description));
         }}
       />
+
+      {/* Complete Task — checklist wajib selesai, attachment dianjurkan (opsional) */}
+      <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Complete Task</DialogTitle>
+            <DialogDescription>
+              {subTasks.length > 0 && subTasks.some((s) => !s.done)
+                ? "Selesaikan semua checklist terlebih dahulu."
+                : "Yakin task ini sudah selesai?"}
+            </DialogDescription>
+          </DialogHeader>
+          {subTasks.length > 0 && subTasks.some((s) => !s.done) ? (
+            <div className="space-y-2 py-2">
+              <p className="text-sm">
+                Checklist {subTasks.filter((s) => s.done).length}/{subTasks.length} selesai. Tersisa:
+              </p>
+              <ul className="list-disc space-y-1 pl-5 text-sm text-muted-foreground">
+                {subTasks
+                  .filter((s) => !s.done)
+                  .map((s) => (
+                    <li key={s.id}>{s.title}</li>
+                  ))}
+              </ul>
+            </div>
+          ) : (
+            <FieldGroup>
+              <Field>
+                <FieldLabel>Attachment (dianjurkan, tidak wajib)</FieldLabel>
+                <input
+                  ref={completeFileRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    onPickFiles(e.target.files);
+                    e.target.value = "";
+                  }}
+                />
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={() => completeFileRef.current?.click()}>
+                    <Paperclip className="h-4 w-4" /> Tambah file
+                  </Button>
+                  <span className="text-xs text-muted-foreground">
+                    {attachments.length > 0 ? `${attachments.length} file terlampir` : "Belum ada file"}
+                  </span>
+                </div>
+              </Field>
+            </FieldGroup>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCompleteOpen(false)}>
+              {subTasks.length > 0 && subTasks.some((s) => !s.done) ? "Tutup" : "Batal"}
+            </Button>
+            {!(subTasks.length > 0 && subTasks.some((s) => !s.done)) && (
+              <Button
+                onClick={() => {
+                  setStatus("completed");
+                  setCompleteOpen(false);
+                }}
+              >
+                Complete Task
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Preview attachment */}
+      <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
 
       {/* Popup tambah assignee */}
       <Dialog open={assigneeDialogOpen} onOpenChange={setAssigneeDialogOpen}>

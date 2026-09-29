@@ -1,42 +1,184 @@
 import { useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
-import { Plus } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { PriorityBadge, StatusBadge, TypeBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
+import { Plus, Search } from "lucide-react";
+
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { PageHeader } from "@/components/page-header";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { StatusBadge, PriorityBadge } from "@/components/status-badge";
+import { initials, avatarColor } from "@/lib/format";
+import {
+  DataTable,
+  DataTableColumnHeader,
+} from "@/components/data-table";
 import { TaskFormDialog } from "@/components/task-form-dialog";
-import { works } from "@/lib/mock";
-import type { Priority, WorkStatus } from "@/types";
+import { seedIfEmpty, loadWorks } from "@/lib/storage";
+import type { WorkItem } from "@/types";
 
 export function Tasks() {
-  const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("all");
-  const [type, setType] = useState<string>("all");
+  seedIfEmpty();
+  const works = loadWorks();
+
+  const [search, setSearch] = useState("");
+  const [filterStatus, setFilterStatus] = useState<string>("all");
+  const [filterPriority, setFilterPriority] = useState<string>("all");
   const [open, setOpen] = useState(false);
 
-  const list = useMemo(
-    () =>
-      works.filter((w) => {
-        const matchQ =
-          w.title.toLowerCase().includes(q.toLowerCase()) ||
-          w.number.toLowerCase().includes(q.toLowerCase());
-        const matchS = status === "all" || w.status === (status as WorkStatus);
-        const matchT = type === "all" || w.type === type;
-        return matchQ && matchS && matchT;
-      }),
-    [q, status, type]
+  // ── Filtered data (passed to DataTable) ────────────────────────────
+  const filtered = useMemo(() => {
+    let list = [...works];
+    if (search.trim()) {
+      const q = search.toLowerCase();
+      list = list.filter(
+        (w) =>
+          w.number.toLowerCase().includes(q) ||
+          w.title.toLowerCase().includes(q)
+      );
+    }
+    if (filterStatus !== "all") {
+      list = list.filter((w) => w.status === filterStatus);
+    }
+    if (filterPriority !== "all") {
+      list = list.filter((w) => w.priority === filterPriority);
+    }
+    return list;
+  }, [works, search, filterStatus, filterPriority]);
+
+  const total = filtered.length;
+
+  // ── Column definitions ─────────────────────────────────────────────
+  const columns: ColumnDef<WorkItem>[] = useMemo(
+    () => [
+      {
+        accessorKey: "number",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="ID" />
+        ),
+        cell: ({ row }) => (
+          <span className="font-mono text-xs">{row.getValue("number")}</span>
+        ),
+      },
+      {
+        accessorKey: "title",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Task Title" />
+        ),
+        cell: ({ row }) => (
+          <Link
+            to={`/tasks/${row.original.number}`}
+            className="block max-w-[280px] truncate font-medium hover:underline"
+          >
+            {row.getValue("title")}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "assignedTo",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Assigned To" />
+        ),
+        cell: ({ row }) => {
+          const name = row.getValue("assignedTo") as string;
+          if (!name) return <span className="text-muted-foreground">—</span>;
+          return (
+            <div className="flex items-center gap-2">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+                  {initials(name)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="truncate text-sm">{name}</span>
+            </div>
+          );
+        },
+      },
+      {
+        accessorKey: "priority",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Priority" />
+        ),
+        cell: ({ row }) => (
+          <PriorityBadge priority={row.getValue("priority")} />
+        ),
+      },
+      {
+        accessorKey: "status",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Status" />
+        ),
+        cell: ({ row }) => (
+          <StatusBadge status={row.getValue("status")} />
+        ),
+      },
+      {
+        accessorKey: "dueDate",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Due Date" />
+        ),
+      },
+    ],
+    []
+  );
+
+  // ── Toolbar (search + filters) ─────────────────────────────────────
+  const toolbar = (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+      <div className="relative flex-1 max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <Input
+          placeholder="Cari ID / Task Title…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-9"
+        />
+      </div>
+      <Select value={filterStatus} onValueChange={setFilterStatus}>
+        <SelectTrigger className="w-[160px]">
+          <SelectValue placeholder="Status" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Status</SelectItem>
+          <SelectItem value="todo">To Do</SelectItem>
+          <SelectItem value="in_progress">In Progress</SelectItem>
+          <SelectItem value="completed">Completed</SelectItem>
+        </SelectContent>
+      </Select>
+      <Select value={filterPriority} onValueChange={setFilterPriority}>
+        <SelectTrigger className="w-[140px]">
+          <SelectValue placeholder="Priority" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">All Priority</SelectItem>
+          <SelectItem value="low">Low</SelectItem>
+          <SelectItem value="medium">Medium</SelectItem>
+          <SelectItem value="high">High</SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
+  // ── Footer info ────────────────────────────────────────────────────
+  const footer = (
+    <>
+      <span>Showing {total} of {works.length} rows</span>
+      <span>Last updated: just now</span>
+    </>
   );
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Tasks"
-        description="Ad-hoc task: Create → Assign → Execute → Complete. Created By dan Assigned To adalah field berbeda."
+        description={`Menampilkan ${total} task dari ${works.length} data`}
         actions={
           <>
             <Button onClick={() => setOpen(true)}>
@@ -54,73 +196,13 @@ export function Tasks() {
         }
       />
 
-      <Card>
-        <CardContent className="flex flex-col gap-3 p-4 sm:flex-row">
-          <Input
-            placeholder="Search title / task number..."
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            className="sm:max-w-xs"
-          />
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="sm:w-48"><SelectValue placeholder="Status" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All status</SelectItem>
-              <SelectItem value="todo">Not Started</SelectItem>
-              <SelectItem value="in_progress">In Progress</SelectItem>
-              <SelectItem value="blocked">Blocked</SelectItem>
-              <SelectItem value="completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-          <Select value={type} onValueChange={setType}>
-            <SelectTrigger className="sm:w-48"><SelectValue placeholder="Type" /></SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Core + Ad-hoc</SelectItem>
-              <SelectItem value="core">Core Work</SelectItem>
-              <SelectItem value="adhoc">Ad-hoc</SelectItem>
-            </SelectContent>
-          </Select>
-          <div className="ml-auto flex items-center">
-            <Badge variant="secondary">{list.length} work</Badge>
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent className="p-0">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Task</TableHead>
-                <TableHead>Type</TableHead>
-                <TableHead>Assignee</TableHead>
-                <TableHead>Priority</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead className="text-right">Progress</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {list.map((w) => (
-                <TableRow key={w.id}>
-                  <TableCell>
-                    <Link to={`/tasks/${w.number}`} className="font-medium hover:underline">
-                      {w.title}
-                    </Link>
-                    <p className="font-mono text-xs text-muted-foreground">
-                      #{w.number} · Due {w.dueDate}
-                    </p>
-                  </TableCell>
-                  <TableCell><TypeBadge type={w.type} /></TableCell>
-                  <TableCell className="text-sm">{w.assignedTo}</TableCell>
-                  <TableCell><PriorityBadge priority={w.priority as Priority} /></TableCell>
-                  <TableCell><StatusBadge status={w.status} /></TableCell>
-                  <TableCell className="text-right font-medium">{w.progress}%</TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+      <DataTable<WorkItem, unknown>
+        columns={columns}
+        data={filtered}
+        pageSize={10}
+        toolbar={toolbar}
+        footer={footer}
+      />
     </div>
   );
 }

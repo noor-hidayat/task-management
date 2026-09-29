@@ -2,15 +2,15 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Dashboard } from "@/pages/Dashboard";
-import { MyTask } from "@/pages/MyTask";
+import { MyWork } from "@/pages/MyWork";
 import { CoreWork } from "@/pages/CoreWork";
+import { Issues } from "@/pages/Issues";
+import { IssueDetail } from "@/pages/IssueDetail";
 import { Tasks } from "@/pages/Tasks";
 import { TaskDetail } from "@/pages/TaskDetail";
 import { Report } from "@/pages/Report";
 import { Teams } from "@/pages/Teams";
 import { Settings } from "@/pages/Settings";
-import { Projects } from "@/pages/Projects";
-import { ProjectDetail } from "@/pages/ProjectDetail";
 import { Login } from "@/pages/Login";
 
 function ProtectedRoutes() {
@@ -33,15 +33,15 @@ function ProtectedRoutes() {
       <Route element={<AppLayout />}>
         <Route index element={<Dashboard />} />
         {/* Primary sidebar labels */}
-        <Route path="my-task" element={<MyTask />} />
-        <Route path="handover" element={<Navigate to="/my-task" replace />} />
-        <Route path="projects" element={<Projects />} />
-        <Route path="projects/:id" element={<ProjectDetail />} />
+        <Route path="my-work" element={<MyWork />} />
+        <Route path="my-task" element={<Navigate to="/my-work" replace />} />
         <Route path="reporting" element={<Report />} />
         {/* Workspace */}
         <Route path="core-work" element={<CoreWork />} />
         <Route path="tasks" element={<Tasks />} />
         <Route path="tasks/:number" element={<TaskDetail />} />
+        <Route path="issues" element={<Issues />} />
+        <Route path="issues/:number" element={<IssueDetail />} />
         <Route path="teams" element={<Teams />} />
         <Route path="settings" element={<Settings />} />
         <Route path="*" element={<Navigate to="/" replace />} />

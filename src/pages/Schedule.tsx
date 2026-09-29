@@ -12,7 +12,7 @@ export function Schedule() {
     <div className="space-y-6">
       <PageHeader
         title="Schedule"
-        description="Menentukan current shift, next shift, recommendation handover & generate core work instance."
+        description="Menentukan current shift, next shift & generate core work instance."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">
@@ -26,7 +26,7 @@ export function Schedule() {
               {s.code === "S1" ? (
                 <Badge variant="progress">Current shift</Badge>
               ) : s.code === "S2" ? (
-                <Badge variant="handover">Next shift</Badge>
+                <Badge variant="secondary">Next shift</Badge>
               ) : (
                 <Badge variant="outline">Night</Badge>
               )}

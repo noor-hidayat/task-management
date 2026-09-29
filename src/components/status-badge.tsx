@@ -1,5 +1,5 @@
-import type { Priority, WorkStatus } from "@/types";
-import { statusLabel, statusVariant, priorityLabel } from "@/lib/format";
+import type { IssueStatus, Priority, WorkStatus } from "@/types";
+import { issueStatusLabel, statusLabel, statusVariant, priorityLabel } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -19,6 +19,21 @@ export function TypeBadge({ type }: { type: "core" | "adhoc" }) {
   return (
     <Badge variant="outline" className="font-normal">
       {type === "core" ? "Core Work" : "Ad-hoc"}
+    </Badge>
+  );
+}
+
+const issueStatusVariant: Record<IssueStatus, "todo" | "progress" | "completed"> = {
+  open: "todo",
+  in_progress: "progress",
+  on_hold: "todo",
+  closed: "completed",
+};
+
+export function IssueStatusBadge({ status, className }: { status: IssueStatus; className?: string }) {
+  return (
+    <Badge variant={issueStatusVariant[status]} className={cn(className)}>
+      {issueStatusLabel[status]}
     </Badge>
   );
 }

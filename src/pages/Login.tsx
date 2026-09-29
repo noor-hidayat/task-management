@@ -1,18 +1,28 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { Lock, Eye, EyeOff, Mail } from "lucide-react";
+import { User as UserIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { users } from "@/lib/mock";
+import { users as mockUsers } from "@/lib/mock";
 import { useAuth } from "@/contexts/AuthContext";
+import type { User } from "@/types";
+
+function loadLoginUsers(): User[] {
+  try {
+    const stored = localStorage.getItem("tm_users");
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch {}
+  return mockUsers;
+}
 
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
+  const [name, setName] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -23,14 +33,10 @@ export function Login() {
 
     await new Promise((resolve) => setTimeout(resolve, 800));
 
-    const user = users.find((u) => u.username === email);
+    const query = name.trim().toLowerCase();
+    const user = loadLoginUsers().find((u) => u.name.toLowerCase() === query);
     if (!user) {
-      setError("Email tidak terdaftar");
-      setIsLoading(false);
-      return;
-    }
-    if (password !== user.password) {
-      setError("Password salah");
+      setError("Nama tidak terdaftar");
       setIsLoading(false);
       return;
     }
@@ -55,67 +61,29 @@ export function Login() {
         <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 shadow-sm">
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm text-center flex items-center justify-center gap-2">
-              <Mail className="w-4 h-4" />
+              <UserIcon className="w-4 h-4" />
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                Email
+              <Label htmlFor="name" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                Nama
               </Label>
               <div className="relative">
-                <Mail className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
+                <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
                 <Input
-                  id="email"
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="email@domain.com"
-                  autoComplete="email"
+                  id="name"
+                  type="text"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                  placeholder="cth: Operator A"
+                  autoComplete="username"
                   required
                   className="pl-10"
                   disabled={isLoading}
                 />
-              </div>
-            </div>
-
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label htmlFor="password" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                  Password
-                </Label>
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="text-sm text-primary hover:underline"
-                  disabled={isLoading}
-                >
-                  {showPassword ? "Sembunyikan" : "Tampilkan"}
-                </button>
-              </div>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
-                <Input
-                  id="password"
-                  type={showPassword ? "text" : "password"}
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Masukkan password"
-                  autoComplete="current-password"
-                  className="pl-10 pr-10"
-                  required
-                  disabled={isLoading}
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300"
-                  disabled={isLoading}
-                >
-                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
-                </button>
               </div>
             </div>
 
@@ -135,11 +103,8 @@ export function Login() {
           </form>
 
           <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-center">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400">
-              Password default: <code className="bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 rounded text-xs font-mono">password123</code>
-            </p>
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Demo: budi@gmail.com, siti@gmail.com, agus@gmail.com
+              Demo: Operator A, Supervisor A, Operator B
             </p>
           </div>
         </div>

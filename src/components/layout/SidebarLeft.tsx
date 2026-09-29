@@ -2,10 +2,11 @@ import { useLocation } from "react-router-dom";
 import {
   AudioWaveform,
   BarChart3,
+  CircleDot,
   ClipboardList,
   Command,
-  FolderKanban,
   LayoutDashboard,
+  ListChecks,
   Settings,
   Users,
 } from "lucide-react";
@@ -41,8 +42,9 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
           pathname={pathname}
           items={[
             { title: "Dashboard", url: "/", icon: LayoutDashboard },
-            { title: "My Task", url: "/my-task", icon: ClipboardList },
-            { title: "Projects", url: "/projects", icon: FolderKanban },
+            { title: "My Work", url: "/my-work", icon: ClipboardList },
+            { title: "Issues", url: "/issues", icon: CircleDot },
+            { title: "Tasks", url: "/tasks", icon: ListChecks },
           ]}
         />
       </SidebarHeader>

@@ -6,7 +6,6 @@ import {
   Inbox,
   Plus,
   Loader2,
-  Ban,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
@@ -38,13 +37,11 @@ import type { WorkItem, WorkStatus, Priority } from "@/types";
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
 
-const STATUS_ORDER: WorkStatus[] = ["todo", "in_progress", "blocked", "handover", "completed"];
+const STATUS_ORDER: WorkStatus[] = ["todo", "in_progress", "completed"];
 
 const STATUS_COLORS: Record<WorkStatus, string> = {
   todo: "#94a3b8",
   in_progress: "#3b82f6",
-  blocked: "#f59e0b",
-  handover: "#a855f7",
   completed: "#22c55e",
 };
 
@@ -223,7 +220,6 @@ const statConfig = [
   { key: "total" as const, label: "Total", icon: Inbox, color: "text-blue-600 bg-blue-50 dark:bg-blue-950" },
   { key: "completed" as const, label: "Selesai", icon: CheckCircle2, color: "text-green-600 bg-green-50 dark:bg-green-950" },
   { key: "inProgress" as const, label: "In Progress", icon: Loader2, color: "text-sky-600 bg-sky-50 dark:bg-sky-950" },
-  { key: "blocked" as const, label: "Blocked", icon: Ban, color: "text-amber-600 bg-amber-50 dark:bg-amber-950" },
   { key: "overdue" as const, label: "Overdue", icon: AlertTriangle, color: "text-red-600 bg-red-50 dark:bg-red-950" },
 ];
 
@@ -233,12 +229,11 @@ function ReportStatCards({ tasks }: { tasks: WorkItem[] }) {
     total: active.length,
     completed: active.filter((t) => t.status === "completed").length,
     inProgress: active.filter((t) => t.status === "in_progress").length,
-    blocked: active.filter((t) => t.status === "blocked").length,
     overdue: active.filter((t) => t.status !== "completed" && !t.cancelled).length, // simplified
   };
 
   return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
       {statConfig.map((s) => {
         const Icon = s.icon;
         return (
@@ -327,37 +322,6 @@ function TypeDistribution({ tasks }: { tasks: WorkItem[] }) {
 }
 
 /* ------------------------------------------------------------------ */
-/*  Blocked Reason                                                     */
-/* ------------------------------------------------------------------ */
-
-function BlockedReasonSection({ tasks }: { tasks: WorkItem[] }) {
-  const blocked = tasks.filter((t) => t.status === "blocked" && !t.cancelled);
-  // Group by blockedReason
-  const reasonMap = new Map<string, number>();
-  blocked.forEach((t) => {
-    const reason = t.blockedReason || "Tanpa alasan";
-    reasonMap.set(reason, (reasonMap.get(reason) ?? 0) + 1);
-  });
-  const data = Array.from(reasonMap.entries()).map(([label, value]) => ({ label, value }));
-
-  if (data.length === 0) {
-    data.push({ label: "Tidak ada task blocked", value: 0 });
-  }
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Blocked Reason</CardTitle>
-        <CardDescription>Alasan task yang terhambat</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <BarChart data={data} color="#f59e0b" />
-      </CardContent>
-    </Card>
-  );
-}
-
-/* ------------------------------------------------------------------ */
 /*  Task by Operator Table                                             */
 /* ------------------------------------------------------------------ */
 
@@ -392,7 +356,6 @@ function OperatorTable({ tasks }: { tasks: WorkItem[] }) {
               <TableHead className="text-center">Total</TableHead>
               <TableHead className="text-center">To Do</TableHead>
               <TableHead className="text-center">In Progress</TableHead>
-              <TableHead className="text-center">Blocked</TableHead>
               <TableHead className="text-center">Completed</TableHead>
               <TableHead className="text-center">High</TableHead>
             </TableRow>
@@ -411,14 +374,13 @@ function OperatorTable({ tasks }: { tasks: WorkItem[] }) {
                 <TableCell className="text-center font-semibold tabular-nums">{r.total}</TableCell>
                 <TableCell className="text-center tabular-nums">{r.byStatus.todo ?? 0}</TableCell>
                 <TableCell className="text-center tabular-nums">{r.byStatus.in_progress ?? 0}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.byStatus.blocked ?? 0}</TableCell>
                 <TableCell className="text-center tabular-nums">{r.byStatus.completed ?? 0}</TableCell>
                 <TableCell className="text-center tabular-nums">{r.byPriority.high ?? 0}</TableCell>
               </TableRow>
             ))}
             {rows.length === 0 && (
               <TableRow>
-                <TableCell colSpan={7} className="h-16 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
                   Belum ada data.
                 </TableCell>
               </TableRow>
@@ -515,7 +477,7 @@ export function Dashboard() {
         description="Ringkasan dan analisis task management"
         actions={
           <Button asChild>
-            <Link to="/my-task"><Plus className="mr-2 h-4 w-4" />My Task</Link>
+            <Link to="/my-work"><Plus className="mr-2 h-4 w-4" />My Work</Link>
           </Button>
         }
       />
@@ -532,11 +494,6 @@ export function Dashboard() {
 
       {/* ── Core vs Adhoc ── */}
       <TypeDistribution tasks={tasks} />
-
-      <Separator />
-
-      {/* ── Blocked Reason ── */}
-      <BlockedReasonSection tasks={tasks} />
 
       <Separator />
 

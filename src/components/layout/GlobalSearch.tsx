@@ -10,15 +10,15 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
+import { loadIssues } from "@/lib/storage";
 import { works } from "@/lib/mock";
 
 const pages = [
-  { title: "My Task", url: "/my-task" },
-  { title: "Inbox (Handover)", url: "/inbox" },
-  { title: "Notes", url: "/notes" },
+  { title: "My Work", url: "/my-work" },
   { title: "Dashboard", url: "/" },
   { title: "Core Work", url: "/core-work" },
   { title: "Tasks", url: "/tasks" },
+  { title: "Issues", url: "/issues" },
   { title: "Teams", url: "/teams" },
   { title: "Schedule", url: "/schedule" },
 ];
@@ -68,6 +68,17 @@ export function GlobalSearch({
               <span>
                 {w.title}{" "}
                 <span className="text-muted-foreground">#{w.number}</span>
+              </span>
+            </CommandItem>
+          ))}
+        </CommandGroup>
+        <CommandGroup heading="Issues">
+          {loadIssues().map((i) => (
+            <CommandItem key={i.id} onSelect={() => go(`/issues/${i.number}`)}>
+              <FileText />
+              <span>
+                {i.title}{" "}
+                <span className="text-muted-foreground">#{i.number}</span>
               </span>
             </CommandItem>
           ))}

@@ -53,7 +53,7 @@ export function AskAiDialog({
       { role: "user", text },
       {
         role: "ai",
-        text: "Backend AI belum tersambung (Phase 3). Jawaban mock: 1 task overdue (TK-000124 follow-up), 2 handover pending ke Shift 2 — cek Inbox.",
+        text: "Backend AI belum tersambung (Phase 3). Jawaban mock: 1 task overdue (TK-000124 follow-up), 2 task in progress — cek My Work.",
       },
     ]);
     setQ("");

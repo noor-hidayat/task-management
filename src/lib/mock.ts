@@ -1,6 +1,6 @@
 import type {
   CoreWorkDef,
-  Handover,
+  Issue,
   ScheduleRow,
   ShiftDef,
   Team,
@@ -142,7 +142,7 @@ export const works: WorkItem[] = [
     number: "TK-000126",
     title: "Cleaning Area 2",
     type: "adhoc",
-    status: "handover",
+    status: "in_progress",
     priority: "low",
     createdBy: "Supervisor A",
     assignedTo: "Operator A",
@@ -150,7 +150,7 @@ export const works: WorkItem[] = [
     teamId: "t-prod-a",
     shift: "Shift 1",
     dueDate: "26 Sep 2026",
-    description: "Cleaning area 2 sebelum handover.",
+    description: "Cleaning area 2.",
     progress: 60,
     evidenceRequired: false,
     evidences: [],
@@ -159,7 +159,7 @@ export const works: WorkItem[] = [
     createdAt: "26 Sep 2026 10:00",
     updatedAt: "26 Sep 2026 14:45",
     activities: [
-      { id: "a1", at: "26 Sep 2026 14:45", text: "handed over to Operator B", actor: "Operator A" },
+      { id: "a1", at: "26 Sep 2026 14:45", text: "started by Operator A", actor: "Operator A" },
     ],
   },
   {
@@ -292,7 +292,7 @@ export const works: WorkItem[] = [
     number: "CW-2026-034",
     title: "End Shift Report",
     type: "core",
-    status: "handover",
+    status: "in_progress",
     priority: "medium",
     createdBy: "System",
     assignedTo: "Operator A",
@@ -312,7 +312,7 @@ export const works: WorkItem[] = [
     createdAt: "26 Sep 2026 07:00",
     updatedAt: "26 Sep 2026 14:30",
     activities: [
-      { id: "a1", at: "26 Sep 2026 14:30", text: "handed over to Operator B", actor: "Operator A" },
+      { id: "a1", at: "26 Sep 2026 14:30", text: "started by Operator A", actor: "Operator A" },
     ],
   },
   {
@@ -375,11 +375,6 @@ export const coreWorks: CoreWorkDef[] = [
   { id: "cw-5", name: "Weekly Calibration", description: "Kalibrasi mingguan", team: "Maintenance", frequency: "Weekly", schedule: "Monday S1", evidenceRequired: true, checklist: ["Calibrate", "Record"], status: "inactive" },
 ];
 
-export const handovers: Handover[] = [
-  { id: "h-1", taskNumber: "TK-000126", taskTitle: "Cleaning Area 2", from: "Operator A", fromShift: "Shift 1", to: "Operator B", toShift: "Shift 2", progress: 60, note: "Machine 4 masih menunggu maintenance confirmation. Sisa area belakang.", status: "pending", handoverAt: "26 Sep 2026 14:45" },
-  { id: "h-2", taskNumber: "TK-000120", taskTitle: "Check Machine Line 2", from: "Operator C", fromShift: "Shift 3", to: "Operator A", toShift: "Shift 1", progress: 70, note: "Tinggal final check.", status: "accepted", handoverAt: "26 Sep 2026 06:50", acceptedAt: "26 Sep 2026 07:05" },
-];
-
 export const scheduleRows: ScheduleRow[] = [
   { user: "Operator A", userId: "u-op-a", days: { Mon: "S1", Tue: "S1", Wed: "S2", Thu: "S2", Fri: "S1", Sat: "OFF", Sun: "OFF" } },
   { user: "Operator B", userId: "u-op-b", days: { Mon: "S2", Tue: "S2", Wed: "S1", Thu: "S1", Fri: "S2", Sat: "OFF", Sun: "OFF" } },
@@ -389,8 +384,107 @@ export const scheduleRows: ScheduleRow[] = [
 export const dashboardStats = {
   open: 8,
   inProgress: 5,
-  pendingHandover: 2,
   completedToday: 12,
   overdue: 1,
   currentShift: "Shift 1 · 07:00 - 15:00",
 };
+
+export const issues: Issue[] = [
+  {
+    id: "iss-1",
+    number: "ISS-000101",
+    title: "Tekanan oli mesin Line 4 tidak stabil",
+    description:
+      "Tekanan oli pada mesin Line 4 fluktuatif di luar batas normal saat shift pagi. Perlu pengecekan pompa dan filter oli.",
+    status: "open",
+    priority: "high",
+    createdBy: "Operator A",
+    assignedTo: "Operator B",
+    plant: "Plant 1",
+    location: "Line 4 · Area Produksi",
+    evidences: [
+      { id: "e1", fileName: "pressure-log.xlsx", fileType: "application/vnd.ms-excel", fileSize: "86 KB", uploadedBy: "Operator A", uploadedAt: "26 Sep 2026 08:20" },
+    ],
+    comments: [],
+    createdAt: "26 Sep 2026 08:15",
+    dueDate: "27 Sep 2026",
+    updatedAt: "26 Sep 2026 08:20",
+    activities: [
+      { id: "a1", at: "26 Sep 2026 08:15", text: "reported issue", actor: "Operator A" },
+    ],
+  },
+  {
+    id: "iss-2",
+    number: "ISS-000102",
+    title: "Sensor suhu conveyor Line 2 error",
+    description:
+      "Sensor suhu conveyor Line 2 menampilkan pembacaan tidak wajar (-40°C). Diduga kabel sensor putus atau modul rusak.",
+    status: "in_progress",
+    priority: "medium",
+    createdBy: "Supervisor A",
+    assignedTo: "Operator C",
+    plant: "Plant 1",
+    location: "Line 2 · Conveyor",
+    evidences: [
+      { id: "e1", fileName: "sensor-photo.jpg", fileType: "image/jpeg", fileSize: "1.2 MB", uploadedBy: "Operator C", uploadedAt: "26 Sep 2026 10:05" },
+      { id: "e2", fileName: "plc-log.txt", fileType: "text/plain", fileSize: "12 KB", uploadedBy: "Operator C", uploadedAt: "26 Sep 2026 10:40" },
+    ],
+    comments: [],
+    createdAt: "26 Sep 2026 09:00",
+    dueDate: "27 Sep 2026",
+    updatedAt: "26 Sep 2026 10:40",
+    activities: [
+      { id: "a1", at: "26 Sep 2026 09:00", text: "reported issue", actor: "Supervisor A" },
+      { id: "a2", at: "26 Sep 2026 09:30", text: "status changed from Open to In Progress", actor: "Operator C" },
+      { id: "a3", at: "26 Sep 2026 10:05", text: "added attachment (sensor-photo.jpg)", actor: "Operator C" },
+    ],
+  },
+  {
+    id: "iss-3",
+    number: "ISS-000103",
+    title: "Kebocoran udara kompresor area QC",
+    description:
+      "Terdengar kebocoran udara pada jalur kompresor dekat area QC. Tekanan drop ~0.5 bar selama 1 jam terakhir.",
+    status: "closed",
+    priority: "high",
+    createdBy: "Operator 1",
+    assignedTo: "Operator C",
+    plant: "Plant 2",
+    location: "Area QC · Jalur Kompresor",
+    resolution: "Fitting sambungan pipa yang longgar dikencangkan dan seal diganti. Tekanan kembali normal 7 bar dan dipantau 2 jam tanpa penurunan.",
+    closedBy: "Operator C",
+    closedAt: "25 Sep 2026 16:20",
+    evidences: [
+      { id: "e1", fileName: "after-fix.jpg", fileType: "image/jpeg", fileSize: "980 KB", uploadedBy: "Operator C", uploadedAt: "25 Sep 2026 16:10" },
+    ],
+    comments: [],
+    createdAt: "25 Sep 2026 13:40",
+    dueDate: "26 Sep 2026",
+    updatedAt: "25 Sep 2026 16:20",
+    activities: [
+      { id: "a1", at: "25 Sep 2026 13:40", text: "reported issue", actor: "Operator 1" },
+      { id: "a2", at: "25 Sep 2026 14:05", text: "status changed from Open to In Progress", actor: "Operator C" },
+      { id: "a3", at: "25 Sep 2026 16:20", text: "closed issue", actor: "Operator C" },
+    ],
+  },
+  {
+    id: "iss-4",
+    number: "ISS-000104",
+    title: "Lampu indikator panel Line 5 mati",
+    description: "Lampu indikator run pada panel kontrol Line 5 mati total, mesin tetap jalan. Kemungkinan bohlam atau relay indikator.",
+    status: "open",
+    priority: "low",
+    createdBy: "Operator B",
+    assignedTo: "Operator 2",
+    plant: "Plant 1",
+    location: "Line 5 · Panel Kontrol",
+    evidences: [],
+    comments: [],
+    createdAt: "26 Sep 2026 11:10",
+    dueDate: "27 Sep 2026",
+    updatedAt: "26 Sep 2026 11:10",
+    activities: [
+      { id: "a1", at: "26 Sep 2026 11:10", text: "reported issue", actor: "Operator B" },
+    ],
+  },
+];

@@ -1,8 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, X } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
   DialogContent,
@@ -20,9 +18,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
+import { RichTextEditor, extractChecklist, injectChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
 import { currentUser, users } from "@/lib/mock";
-import { loadProjects } from "@/lib/storage";
 import type { Priority } from "@/types";
 
 export type TaskChecklistDraft = { id: string; title: string; done: boolean };
@@ -30,7 +27,6 @@ export type TaskChecklistDraft = { id: string; title: string; done: boolean };
 export type TaskFormValues = {
   title: string;
   description: string;
-  projectId: string;
   priority: Priority;
   /** ISO yyyy-mm-dd (untuk input date) */
   dueISO: string;
@@ -56,6 +52,14 @@ export function toDMY(iso: string): string {
   return `${d} ${MONTH_ABBR[m - 1]} ${y}`;
 }
 
+/** ISO yyyy-mm-dd untuk besok (default due date = H+1). */
+export function tomorrowISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
 /** "26 Sep 2026" -> "2026-09-26" ("" kalau tidak valid) */
 export function dmyToISO(dmy: string): string {
   const [d, m, y] = dmy.split(" ");
@@ -75,9 +79,8 @@ function newId() {
 const DEFAULTS: TaskFormValues = {
   title: "",
   description: "",
-  projectId: "",
   priority: "medium",
-  dueISO: "2026-09-26",
+  dueISO: tomorrowISO(),
   assignedTo: currentUser.name,
   teamId: "t-prod-a",
   checklist: [],
@@ -104,112 +107,113 @@ export function TaskFormDialog({
   showTeam?: boolean;
   onSubmit: (values: TaskFormValues) => void;
 }) {
-  const projects = useMemo(() => loadProjects(), []);
-
   const [title, setTitle] = useState(initial?.title ?? DEFAULTS.title);
   const [description, setDescription] = useState(initial?.description ?? DEFAULTS.description);
-  const [projectId, setProjectId] = useState(initial?.projectId ?? DEFAULTS.projectId);
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? DEFAULTS.priority);
   const [dueISO, setDueISO] = useState(initial?.dueISO ?? DEFAULTS.dueISO);
   const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? DEFAULTS.assignedTo);
   const [teamId, setTeamId] = useState(initial?.teamId ?? DEFAULTS.teamId);
-  const [checklist, setChecklist] = useState<TaskChecklistDraft[]>(initial?.checklist ?? []);
-  const [checkDraft, setCheckDraft] = useState("");
 
-  // Reset tiap kali dialog dibuka (create kosong / edit terisi data task)
+  // Reset tiap kali dialog dibuka (create kosong / edit terisi data task).
+  // Checklist disuntik ke description agar tambah/hapus cukup lewat description.
   useEffect(() => {
     if (!open) return;
     setTitle(initial?.title ?? DEFAULTS.title);
-    setDescription(initial?.description ?? DEFAULTS.description);
-    setProjectId(initial?.projectId ?? DEFAULTS.projectId);
+    setDescription(injectChecklist(initial?.description ?? DEFAULTS.description, initial?.checklist ?? []));
     setPriority(initial?.priority ?? DEFAULTS.priority);
-    setDueISO(initial?.dueISO ?? DEFAULTS.dueISO);
+    setDueISO(initial?.dueISO ?? tomorrowISO());
     setAssignedTo(initial?.assignedTo ?? DEFAULTS.assignedTo);
     setTeamId(initial?.teamId ?? DEFAULTS.teamId);
-    setChecklist(initial?.checklist ? [...initial.checklist] : []);
-    setCheckDraft("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const addCheck = () => {
-    const t = checkDraft.trim();
-    if (!t) return;
-    setChecklist((prev) => [...prev, { id: newId(), title: t, done: false }]);
-    setCheckDraft("");
-  };
-
   const handleSubmit = () => {
     if (!title.trim()) return;
+    // Description satu-satunya sumber checklist: tambah/hapus/hapus centang di sini.
+    const prev = new Map((initial?.checklist ?? []).map((c) => [c.title.toLowerCase(), c]));
+    const merged = extractChecklist(description).map((t) => {
+      const p = prev.get(t.title.toLowerCase());
+      return { id: p?.id ?? newId(), title: t.title, done: t.done };
+    });
+    const cleanDesc = stripChecklist(description);
     onSubmit({
       title: title.trim(),
-      description: description.trim(),
-      projectId,
+      description: isEmptyHtml(cleanDesc) ? "" : cleanDesc,
       priority,
       dueISO,
       assignedTo,
       teamId,
-      checklist,
+      checklist: merged,
     });
     onOpenChange(false);
   };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90svh] overflow-y-auto">
+      <DialogContent className="max-h-[90svh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
           {dialogDescription && <DialogDescription>{dialogDescription}</DialogDescription>}
         </DialogHeader>
-        <div className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="tf-title">Title</Label>
-            <Input
-              id="tf-title"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="cth: Check Machine Line 4"
-              autoComplete="off"
-            />
-          </div>
-          {(showAssignee || showTeam) && (
-            <div className="grid grid-cols-2 gap-4">
-              {showAssignee && (
-                <div className="grid gap-2">
-                  <Label>Assigned To</Label>
-                  <Select value={assignedTo} onValueChange={setAssignedTo}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {users.map((u) => (
-                        <SelectItem key={u.id} value={u.name}>
-                          {u.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
-              {showTeam && (
-                <div className="grid gap-2">
-                  <Label>Team</Label>
-                  <Select value={teamId} onValueChange={setTeamId}>
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {TEAMS.map((t) => (
-                        <SelectItem key={t.id} value={t.id}>
-                          {t.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-              )}
+        <div className="grid gap-4 py-2 md:grid-cols-[1fr_240px]">
+          {/* Kiri: Title + Description */}
+          <div className="grid content-start gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="tf-title">Title</Label>
+              <Input
+                id="tf-title"
+                value={title}
+                onChange={(e) => setTitle(e.target.value)}
+                placeholder="cth: Check Machine Line 4"
+                autoComplete="off"
+              />
             </div>
-          )}
-          <div className="grid grid-cols-2 gap-4">
+            <div className="grid gap-2">
+              <Label>Description</Label>
+              <RichTextEditor
+                value={description}
+                onChange={setDescription}
+                users={users.map((u) => u.name)}
+                placeholder="Tulis deskripsi pekerjaan..."
+              />
+            </div>
+          </div>
+          {/* Kanan: Assigned To, Team, Priority, Due Date */}
+          <div className="grid content-start gap-4 md:border-l md:pl-4">
+            {showAssignee && (
+              <div className="grid gap-2">
+                <Label>Assigned To</Label>
+                <Select value={assignedTo} onValueChange={setAssignedTo}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {users.map((u) => (
+                      <SelectItem key={u.id} value={u.name}>
+                        {u.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
+            {showTeam && (
+              <div className="grid gap-2">
+                <Label>Team</Label>
+                <Select value={teamId} onValueChange={setTeamId}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {TEAMS.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
             <div className="grid gap-2">
               <Label>Priority</Label>
               <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
@@ -231,96 +235,6 @@ export function TaskFormDialog({
                 value={dueISO}
                 onChange={(e) => setDueISO(e.target.value)}
               />
-            </div>
-          </div>
-          <div className="grid gap-2">
-            <Label>Project</Label>
-            <Select
-              value={projectId || "__none"}
-              onValueChange={(v) => setProjectId(v === "__none" ? "" : v)}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Pilih project" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="__none">No project</SelectItem>
-                {projects.map((p) => (
-                  <SelectItem key={p.id} value={p.id}>
-                    {p.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="tf-desc">Description</Label>
-            <Textarea
-              id="tf-desc"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Tulis deskripsi pekerjaan..."
-              rows={3}
-              className="resize-y"
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label>
-              Checklist{" "}
-              <span className="font-normal text-muted-foreground">
-                {checklist.filter((c) => c.done).length} / {checklist.length}
-              </span>
-            </Label>
-            {checklist.length > 0 && (
-              <ul className="space-y-1">
-                {checklist.map((c) => (
-                  <li
-                    key={c.id}
-                    className="group flex items-center gap-2.5 rounded-md px-1 py-1 hover:bg-muted/50"
-                  >
-                    <Checkbox
-                      checked={c.done}
-                      onCheckedChange={() =>
-                        setChecklist((prev) =>
-                          prev.map((x) => (x.id === c.id ? { ...x, done: !x.done } : x))
-                        )
-                      }
-                      aria-label={c.title}
-                    />
-                    <span
-                      className={`flex-1 text-sm ${
-                        c.done ? "text-muted-foreground line-through" : ""
-                      }`}
-                    >
-                      {c.title}
-                    </span>
-                    <button
-                      type="button"
-                      aria-label={`Hapus ${c.title}`}
-                      onClick={() => setChecklist((prev) => prev.filter((x) => x.id !== c.id))}
-                      className="rounded p-0.5 opacity-0 hover:bg-muted group-hover:opacity-100"
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-            <div className="flex gap-2">
-              <Input
-                value={checkDraft}
-                onChange={(e) => setCheckDraft(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    addCheck();
-                  }
-                }}
-                placeholder="Tambah item checklist…"
-                autoComplete="off"
-              />
-              <Button variant="outline" onClick={addCheck} disabled={!checkDraft.trim()}>
-                <Plus className="h-4 w-4" /> Add
-              </Button>
             </div>
           </div>
         </div>

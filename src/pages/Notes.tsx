@@ -34,7 +34,7 @@ const seed: Note[] = [
   {
     id: "n-1",
     title: "Machine 4 — tunggu maintenance",
-    body: "Pressure belum dicek, sudah handover ke Shift 2. Follow-up saat start shift berikutnya.",
+    body: "Pressure belum dicek di Shift 2. Follow-up saat start shift berikutnya.",
     at: "26 Sep 2026 14:50",
   },
   {

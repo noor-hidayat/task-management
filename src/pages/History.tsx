@@ -1,12 +1,12 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge, TypeBadge } from "@/components/status-badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { handovers, works } from "@/lib/mock";
+import { works } from "@/lib/mock";
 
 export function History() {
   const [q, setQ] = useState("");
@@ -18,14 +18,13 @@ export function History() {
     <div className="space-y-6">
       <PageHeader
         title="History"
-        description="Task history, team report & handover report. Semua aktivitas penting tercatat."
+        description="Task history & team report. Semua aktivitas penting tercatat."
       />
 
       <Tabs defaultValue="tasks">
         <TabsList>
           <TabsTrigger value="tasks">Task History</TabsTrigger>
           <TabsTrigger value="team">Team Report</TabsTrigger>
-          <TabsTrigger value="handover">Handover Report</TabsTrigger>
         </TabsList>
 
         <TabsContent value="tasks" className="space-y-4">
@@ -86,7 +85,7 @@ export function History() {
               { k: "Total work", v: "21" },
               { k: "Completed", v: "12" },
               { k: "In Progress", v: "5" },
-              { k: "Handover / Overdue", v: "2 / 1" },
+              { k: "Overdue", v: "1" },
             ].map((s) => (
               <Card key={s.k}>
                 <CardHeader className="pb-2"><CardTitle className="text-sm font-medium text-muted-foreground">{s.k}</CardTitle></CardHeader>
@@ -96,39 +95,6 @@ export function History() {
           </div>
         </TabsContent>
 
-        <TabsContent value="handover">
-          <Card>
-            <CardHeader>
-              <CardTitle>Handover Report</CardTitle>
-              <CardDescription>From → To · shift · progress · handover / acceptance / completion time</CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Task</TableHead>
-                    <TableHead>From → To</TableHead>
-                    <TableHead>Progress</TableHead>
-                    <TableHead>Handover</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {handovers.map((h) => (
-                    <TableRow key={h.id}>
-                      <TableCell>
-                        <p className="font-medium">{h.taskTitle}</p>
-                        <p className="font-mono text-xs text-muted-foreground">#{h.taskNumber}</p>
-                      </TableCell>
-                      <TableCell className="text-sm">{h.from} ({h.fromShift}) → {h.to} ({h.toShift})</TableCell>
-                      <TableCell>{h.progress}%</TableCell>
-                      <TableCell className="text-xs text-muted-foreground">{h.handoverAt}</TableCell>
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
-            </CardContent>
-          </Card>
-        </TabsContent>
       </Tabs>
     </div>
   );

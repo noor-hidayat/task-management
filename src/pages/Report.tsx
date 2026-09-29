@@ -19,22 +19,16 @@ import {
   DataTable,
   DataTableColumnHeader,
 } from "@/components/data-table";
-import { seedIfEmpty, loadWorks, loadProjects } from "@/lib/storage";
+import { seedIfEmpty, loadWorks } from "@/lib/storage";
 import type { WorkItem } from "@/types";
 
 export function Report() {
   seedIfEmpty();
   const works = loadWorks();
-  const projects = loadProjects();
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
-
-  const projectMap = useMemo(
-    () => Object.fromEntries(projects.map((p) => [p.id, p.name])),
-    [projects]
-  );
 
   // ── Filtered data (passed to DataTable) ────────────────────────────
   const filtered = useMemo(() => {
@@ -44,8 +38,7 @@ export function Report() {
       list = list.filter(
         (w) =>
           w.number.toLowerCase().includes(q) ||
-          w.title.toLowerCase().includes(q) ||
-          (projectMap[w.projectId ?? ""] || "").toLowerCase().includes(q)
+          w.title.toLowerCase().includes(q)
       );
     }
     if (filterStatus !== "all") {
@@ -55,7 +48,7 @@ export function Report() {
       list = list.filter((w) => w.priority === filterPriority);
     }
     return list;
-  }, [works, search, filterStatus, filterPriority, projectMap]);
+  }, [works, search, filterStatus, filterPriority]);
 
   const total = filtered.length;
 
@@ -81,14 +74,6 @@ export function Report() {
             {row.getValue("title")}
           </span>
         ),
-      },
-      {
-        id: "project",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Project" />
-        ),
-        cell: ({ row }) =>
-          projectMap[row.original.projectId ?? ""] || "—",
       },
       {
         accessorKey: "assignedTo",
@@ -134,26 +119,8 @@ export function Report() {
           <DataTableColumnHeader column={column} title="Due Date" />
         ),
       },
-      {
-        id: "blocked",
-        header: () => <div className="text-center">Ever Blocked</div>,
-        cell: ({ row }) => {
-          const wasEverBlocked = !!row.original.blockedReason || !!row.original.blockedNote;
-          return (
-            <div className="text-center">
-              {wasEverBlocked ? (
-                <span className="inline-flex items-center justify-center rounded-full px-2.5 py-0.5 text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200">
-                  Yes
-                </span>
-              ) : (
-                <span className="text-muted-foreground">No</span>
-              )}
-            </div>
-          );
-        },
-      },
     ],
-    [projectMap]
+    []
   );
 
   // ── Toolbar (search + filters) ─────────────────────────────────────
@@ -162,7 +129,7 @@ export function Report() {
       <div className="relative flex-1 max-w-sm">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
         <Input
-          placeholder="Cari ID / Task Title / Project…"
+          placeholder="Cari ID / Task Title…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-9"
@@ -176,7 +143,6 @@ export function Report() {
           <SelectItem value="all">All Status</SelectItem>
           <SelectItem value="todo">To Do</SelectItem>
           <SelectItem value="in_progress">In Progress</SelectItem>
-          <SelectItem value="blocked">Blocked</SelectItem>
           <SelectItem value="completed">Completed</SelectItem>
         </SelectContent>
       </Select>

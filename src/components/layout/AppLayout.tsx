@@ -53,8 +53,8 @@ const notifications = [
   },
   {
     id: "n-3",
-    type: "handover",
-    title: "Handover received",
+    type: "progress",
+    title: "Task in progress",
     message: "Cleaning Area 2 (60% progress)",
     from: "Operator A",
     time: "1 hour ago",
@@ -86,20 +86,17 @@ const notifications = [
 const notificationIcon: Record<string, React.ReactNode> = {
   assignment: <User className="h-4 w-4" />,
   mention: <MessageSquare className="h-4 w-4" />,
-  handover: <Clock className="h-4 w-4" />,
+  progress: <Clock className="h-4 w-4" />,
   overdue: <AlertTriangle className="h-4 w-4" />,
   comment: <MessageSquare className="h-4 w-4" />,
 };
 
 const crumbs: Record<string, string> = {
   "/": "Dashboard",
-  "/my-task": "My Task",
+  "/my-work": "My Work",
   "/core-work": "Core Work",
   "/tasks": "Tasks",
-  "/handover": "Inbox",
-  "/inbox": "Inbox",
-  "/projects": "Projects",
-  "/notes": "Notes",
+  "/issues": "Issues",
   "/teams": "Teams",
   "/schedule": "Schedule",
   "/settings": "Settings",
@@ -107,6 +104,7 @@ const crumbs: Record<string, string> = {
 
 function breadcrumbFor(pathname: string) {
   if (pathname.startsWith("/tasks/")) return "Task Detail";
+  if (pathname.startsWith("/issues/")) return "Issue Detail";
   return crumbs[pathname] ?? "Team Work";
 }
 
@@ -210,7 +208,7 @@ export function AppLayout() {
                               "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
                               notif.type === "assignment" && "bg-blue-500/10 text-blue-600",
                               notif.type === "mention" && "bg-purple-500/10 text-purple-600",
-                              notif.type === "handover" && "bg-amber-500/10 text-amber-600",
+                              notif.type === "progress" && "bg-amber-500/10 text-amber-600",
                               notif.type === "overdue" && "bg-red-500/10 text-red-600",
                               notif.type === "comment" && "bg-green-500/10 text-green-600"
                             )}
@@ -250,7 +248,7 @@ export function AppLayout() {
           </div>
           <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
         </header>
-        <div className={cn("flex flex-1 min-h-0 flex-col p-4", pathname === "/inbox" || pathname === "/handover" ? "overflow-hidden" : "overflow-y-auto")}>
+        <div className={cn("flex flex-1 min-h-0 flex-col p-4 overflow-y-auto")}>
           <Outlet />
         </div>
       </SidebarInset>

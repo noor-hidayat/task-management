@@ -1,13 +1,13 @@
 export type WorkStatus =
   | "todo"
   | "in_progress"
-  | "blocked"
-  | "handover"
   | "completed";
 
 export type Priority = "low" | "medium" | "high";
 
 export type TaskType = "core" | "adhoc";
+
+export type IssueStatus = "open" | "in_progress" | "on_hold" | "closed";
 
 export type UserRole = "admin" | "leader" | "member";
 
@@ -52,6 +52,8 @@ export interface Evidence {
   fileSize: string;
   uploadedBy: string;
   uploadedAt: string;
+  /** Isi file (data URL) untuk preview — opsional, hanya file kecil. */
+  dataUrl?: string;
 }
 
 export interface Activity {
@@ -86,9 +88,6 @@ export interface WorkItem {
   progress: number;
   evidenceRequired: boolean;
   cancelled?: boolean;
-  projectId?: string;
-  blockedReason?: string;
-  blockedNote?: string;
   evidences: Evidence[];
   checklist: ChecklistItem[];
   comments?: Comment[];
@@ -111,23 +110,31 @@ export interface CoreWorkDef {
   todayInstance?: string;
 }
 
-export interface Handover {
-  id: string;
-  taskNumber: string;
-  taskTitle: string;
-  from: string;
-  fromShift: string;
-  to: string;
-  toShift: string;
-  progress: number;
-  note: string;
-  status: "pending" | "accepted" | "completed";
-  handoverAt: string;
-  acceptedAt?: string;
-}
-
 export interface ScheduleRow {
   user: string;
   userId: string;
   days: Record<string, string>;
+}
+
+export interface Issue {
+  id: string;
+  number: string;
+  title: string;
+  description: string;
+  status: IssueStatus;
+  priority: Priority;
+  createdBy: string;
+  assignedTo: string;
+  plant: string;
+  location: string;
+  dueDate: string;
+  resolution?: string;
+  closedBy?: string;
+  closedAt?: string;
+  holdReason?: string;
+  evidences: Evidence[];
+  comments?: Comment[];
+  createdAt: string;
+  updatedAt: string;
+  activities: Activity[];
 }
