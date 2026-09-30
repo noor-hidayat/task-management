@@ -5,13 +5,6 @@ import { ClipboardList, MessageSquare, Paperclip } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   DataTable,
@@ -20,8 +13,8 @@ import {
 import { IssueStatusBadge, PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { avatarColor, initials } from "@/lib/format";
-import { useIssues, useUsers, useWorks } from "@/hooks/useSupabaseLists";
-import type { Issue, IssueStatus, Priority, User, WorkItem, WorkStatus } from "@/types";
+import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
+import type { Issue, IssueStatus, Priority, WorkItem, WorkStatus } from "@/types";
 
 type WorkKind = "task" | "issue";
 type WorkColumn = "open" | "in_progress" | "on_hold" | "completed";
@@ -62,20 +55,6 @@ function safeTaskStatus(s: unknown): WorkStatus {
   return TASK_STATUSES.includes(s as WorkStatus) ? (s as WorkStatus) : "in_progress";
 }
 
-/** Daftar user dari database + user login, agar user custom ikut muncul. */
-function buildAssigneeUsers(users: User[], currentUser: User | null): User[] {
-  const seen = new Set<string>();
-  const list = users.filter((u) => {
-    if (!u?.name || seen.has(u.name)) return false;
-    seen.add(u.name);
-    return true;
-  });
-  if (currentUser?.name && !seen.has(currentUser.name)) {
-    list.unshift({ id: currentUser.id, name: currentUser.name, role: currentUser.role });
-  }
-  return list;
-}
-
 function taskColumn(s: WorkStatus): WorkColumn {
   if (s === "todo") return "open";
   if (s === "completed") return "completed";
@@ -98,7 +77,9 @@ function plainText(html: string): string {
 
 function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRow[] {
   const tasks = works.filter((w) => w.assignedTo === assignee && !w.cancelled);
-  const issueItems = issues.filter((i) => i.assignedTo === assignee);
+  const issueItems = issues.filter(
+    (i) => i.assignedTo === assignee || (i.assignees ?? []).includes(assignee)
+  );
   const rows: WorkRow[] = [
     ...tasks.map(
       (w): WorkRow => {
@@ -256,19 +237,8 @@ export function MyWork() {
   const { user } = useAuth();
   const { data: works } = useWorks();
   const { data: issues } = useIssues();
-  const { data: users } = useUsers();
-  const defaultName = user?.name ?? users[0]?.name ?? "";
-  const [assignee, setAssignee] = React.useState(defaultName);
+  const assignee = user?.name ?? "";
   const [q, setQ] = React.useState("");
-
-  React.useEffect(() => {
-    if (!assignee && defaultName) setAssignee(defaultName);
-  }, [assignee, defaultName]);
-
-  const assigneeOptions = React.useMemo(
-    () => buildAssigneeUsers(users, user),
-    [users, user]
-  );
 
   const rows = React.useMemo(
     () => buildRows(assignee, works, issues),
@@ -288,7 +258,7 @@ export function MyWork() {
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">My Work</h1>
           <p className="text-sm text-muted-foreground">
-            Gabungan task &amp; issue yang di-assign ke {assignee || "—"}
+            Daftar task &amp; issue yang ditugaskan kepada Anda ({assignee || "—"})
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -298,14 +268,6 @@ export function MyWork() {
             onChange={(e) => setQ(e.target.value)}
             className="sm:w-56"
           />
-          <Select value={assignee} onValueChange={setAssignee}>
-            <SelectTrigger className="w-48"><SelectValue placeholder="User" /></SelectTrigger>
-            <SelectContent>
-              {assigneeOptions.map((u) => (
-                <SelectItem key={u.id} value={u.name}>{u.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </div>
       </div>
 
