@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlignLeft,
-  ArrowRightLeft,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -71,20 +70,12 @@ import { dmyToISO, toDMY } from "@/components/task-form-dialog";
 import { RichTextView } from "@/components/rich-text-editor";
 import { avatarColor, initials } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
-import { useIssues, useTeams, useUsers } from "@/hooks/useSupabaseLists";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { handoverIssue, updateIssue } from "@/lib/api/issues";
+import { useIssues, useUsers } from "@/hooks/useSupabaseLists";
+import { updateIssue } from "@/lib/api/issues";
 import { addComment } from "@/lib/api/related";
 import { logActivity } from "@/lib/api/works";
 import { listProfiles } from "@/lib/api/profiles";
 import { deleteAttachment, fetchAttachmentObjectUrl, uploadAttachment } from "@/lib/api/attachments";
-import { pushNotification } from "@/lib/api/notifications";
 import type { Comment, Evidence, Issue } from "@/types";
 
 type AttachmentItem = {
@@ -182,7 +173,6 @@ export function IssueDetail() {
   const { number } = useParams();
   const { user: currentUser } = useAuth();
   const { data: issues, reload } = useIssues();
-  const { data: teams } = useTeams();
   const { data: users } = useUsers();
 
   const issue: Issue | undefined = useMemo(
@@ -200,9 +190,6 @@ export function IssueDetail() {
   const [closeDraft, setCloseDraft] = useState("");
   const [holdOpen, setHoldOpen] = useState(false);
   const [holdDraft, setHoldDraft] = useState("");
-  const [handoverOpen, setHandoverOpen] = useState(false);
-  const [handoverTeamId, setHandoverTeamId] = useState("");
-  const [handoverNote, setHandoverNote] = useState("");
   const [assigneeOpen, setAssigneeOpen] = useState(false);
   const [dialogAssignees, setDialogAssignees] = useState<string[]>([]);
   const [pickerQuery, setPickerQuery] = useState("");
@@ -245,7 +232,6 @@ export function IssueDetail() {
   const isClosed = issue.status === "closed";
   const comments: Comment[] = issue.comments ?? [];
   const actorId = currentUser?.id ?? "";
-  const actorName = currentUser?.name ?? "—";
 
   const openCloseDialog = () => {
     setCloseDraft(issue.resolution ?? "");
@@ -336,41 +322,6 @@ export function IssueDetail() {
     }
     await updateIssue(issue.id, patch);
     reload();
-  };
-
-  const openHandoverDialog = () => {
-    setHandoverTeamId("");
-    setHandoverNote("");
-    setHandoverOpen(true);
-  };
-
-  const confirmHandover = async () => {
-    if (!handoverTeamId || handoverTeamId === issue.assignedTeamId) return;
-    const toName = teams.find((t) => t.id === handoverTeamId)?.name ?? handoverTeamId;
-    await handoverIssue(
-      issue.id,
-      handoverTeamId,
-      toName,
-      actorId,
-      actorName,
-      issue.assignedTeamId ?? null,
-      issue.assignedTeam ?? null
-    );
-    if (handoverNote.trim()) {
-      await addComment("issue", issue.id, actorId, handoverNote.trim());
-    }
-    await pushNotification({
-      type: "handover",
-      title: "Issue diserahkan ke tim Anda",
-      message: `${issue.number} · ${issue.title}`,
-      fromId: actorId,
-      forUserId: null,
-      link: `/issues/${issue.number}`,
-    });
-    reload();
-    setHandoverOpen(false);
-    setHandoverTeamId("");
-    setHandoverNote("");
   };
 
   const submitAssignee = async () => {
@@ -521,9 +472,6 @@ export function IssueDetail() {
                       <>
                         <DropdownMenuItem onClick={() => setEditOpen(true)}>
                           <Pencil className="h-4 w-4" /> Edit Issue
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={openHandoverDialog}>
-                          <ArrowRightLeft className="h-4 w-4" /> Handover to team
                         </DropdownMenuItem>
                         {issue.status === "open" ? (
                           <DropdownMenuItem onClick={startIssue}>
@@ -690,50 +638,6 @@ export function IssueDetail() {
                   <span className="text-sm text-muted-foreground">—</span>
                 )}
               </DetailField>
-              <DetailField
-                icon={<ArrowRightLeft />}
-                label="Teams"
-                action={<AddButton label="Handover to team" onClick={openHandoverDialog} />}
-              >
-                <div className="space-y-1.5 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Reported by</span>
-                    <Badge variant="outline" className="font-normal">{issue.reportedTeam ?? "—"}</Badge>
-                  </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground">Assigned to</span>
-                    <Badge variant="secondary" className="font-normal">{issue.assignedTeam ?? "—"}</Badge>
-                  </div>
-                  {(issue.handoverHistory ?? []).length > 0 && (
-                    <div className="rounded-lg border bg-muted/30 px-2.5 py-2">
-                      <p className="mb-1.5 text-[11px] font-medium tracking-widest text-muted-foreground">HANDOVER</p>
-                      <ol className="space-y-1.5">
-                        {(issue.handoverHistory ?? []).map((h, idx) => (
-                          <li key={h.id} className="text-xs">
-                            <div className="flex items-center gap-1.5">
-                              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] tabular-nums">{idx + 1}</span>
-                              <span className="font-medium">{h.toTeam}</span>
-                            </div>
-                            <p className="mt-0.5 pl-6 text-muted-foreground">{h.at} · {h.actor}</p>
-                            {idx < (issue.handoverHistory ?? []).length - 1 && (
-                              <p className="pl-6 text-muted-foreground">↓</p>
-                            )}
-                          </li>
-                        ))}
-                        {isClosed && (
-                          <li className="text-xs">
-                            <p className="pl-6 text-muted-foreground">↓</p>
-                            <div className="flex items-center gap-1.5">
-                              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px]">✓</span>
-                              <span className="font-medium">Closed</span>
-                            </div>
-                          </li>
-                        )}
-                      </ol>
-                    </div>
-                  )}
-                </div>
-              </DetailField>
               <DetailField icon={<CircleDot />} label="Status">
                 <IssueStatusBadge status={issue.status} />
               </DetailField>
@@ -846,56 +750,6 @@ export function IssueDetail() {
         }}
         onSubmit={submitEdit}
       />
-
-      {/* Handover to team — preserves reported team + history */}
-      <Dialog open={handoverOpen} onOpenChange={setHandoverOpen}>
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Handover to team</DialogTitle>
-            <DialogDescription>
-              Serahkan #{issue.number} ke tim lain. Tim pelapor ({issue.reportedTeam ?? "—"}) tetap dipertahankan.
-            </DialogDescription>
-          </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel>From</FieldLabel>
-              <Input value={issue.assignedTeam ?? issue.assignedTeamId ?? "—"} disabled />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="handover-team">To team</FieldLabel>
-              <Select value={handoverTeamId} onValueChange={setHandoverTeamId}>
-                <SelectTrigger id="handover-team"><SelectValue placeholder="Pilih tim tujuan" /></SelectTrigger>
-                <SelectContent>
-                  {teams
-                    .filter((t) => t.id !== issue.assignedTeamId)
-                    .map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
-                    ))}
-                </SelectContent>
-              </Select>
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="handover-note">Note <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
-              <Textarea
-                id="handover-note"
-                value={handoverNote}
-                onChange={(e) => setHandoverNote(e.target.value)}
-                placeholder="cth: Butuh verifikasi data transaksi oleh IT…"
-                rows={3}
-                className="resize-y"
-              />
-            </Field>
-          </FieldGroup>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setHandoverOpen(false)}>
-              Batal
-            </Button>
-            <Button onClick={confirmHandover} disabled={!handoverTeamId}>
-              Handover
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
 
       {/* Close Issue — wajib isi resolution */}
       <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
