@@ -45,20 +45,20 @@ create trigger on_auth_user_created
   for each row execute function public.handle_new_user();
 
 -- ── Penomoran otomatis ─────────────────────────────────────────
--- TK-000125 (adhoc work), CW-YYYY-031 (core work), ISS-000101 (issue).
-create sequence if not exists public.work_adhoc_seq start 125;
+-- TK-MMYY{nnnn} (adhoc work), CW-YYYY-031 (core work), ISS-MMYY{nnnn} (issue).
+create sequence if not exists public.work_adhoc_seq start 1;
 create sequence if not exists public.work_core_seq  start 31;
-create sequence if not exists public.issue_seq      start 101;
+create sequence if not exists public.issue_seq      start 1;
 
 create or replace function public.set_work_number()
 returns trigger language plpgsql as $$
-declare yr text := to_char(now(), 'YYYY');
+declare mmyy text := to_char(now(), 'MMYY');
 begin
   if new.number is null or new.number = '' then
     if new.type = 'core' then
-      new.number := 'CW-' || yr || '-' || lpad(nextval('public.work_core_seq')::text, 3, '0');
+      new.number := 'CW-' || to_char(now(), 'YYYY') || '-' || lpad(nextval('public.work_core_seq')::text, 3, '0');
     else
-      new.number := 'TK-' || lpad(nextval('public.work_adhoc_seq')::text, 6, '0');
+      new.number := 'TK-' || mmyy || lpad(nextval('public.work_adhoc_seq')::text, 4, '0');
     end if;
   end if;
   return new;
@@ -71,9 +71,10 @@ create trigger trg_work_number
 
 create or replace function public.set_issue_number()
 returns trigger language plpgsql as $$
+declare mmyy text := to_char(now(), 'MMYY');
 begin
   if new.number is null or new.number = '' then
-    new.number := 'ISS-' || lpad(nextval('public.issue_seq')::text, 6, '0');
+    new.number := 'ISS-' || mmyy || lpad(nextval('public.issue_seq')::text, 4, '0');
   end if;
   return new;
 end $$;
