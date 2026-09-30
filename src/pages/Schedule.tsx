@@ -47,7 +47,7 @@ export function Schedule() {
     <div className="space-y-6">
       <PageHeader
         title="Schedule"
-        description="Menentukan current shift, next shift & generate core work instance."
+        description="Menentukan current shift, next shift & jadwal shift operator."
       />
 
       <div className="grid gap-4 sm:grid-cols-3">

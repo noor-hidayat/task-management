@@ -45,7 +45,6 @@ const notificationIcon: Record<string, React.ReactNode> = {
 const crumbs: Record<string, string> = {
   "/": "Dashboard",
   "/my-work": "My Work",
-  "/core-work": "Core Work",
   "/tasks": "Tasks",
   "/issues": "Issues",
   "/teams": "Teams",

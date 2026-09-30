@@ -15,7 +15,6 @@ import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
 const pages = [
   { title: "My Work", url: "/my-work" },
   { title: "Dashboard", url: "/" },
-  { title: "Core Work", url: "/core-work" },
   { title: "Tasks", url: "/tasks" },
   { title: "Issues", url: "/issues" },
   { title: "Teams", url: "/teams" },

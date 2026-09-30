@@ -4,8 +4,7 @@ import { listWorks } from "@/lib/api/works";
 import { listIssues } from "@/lib/api/issues";
 import { listTeams } from "@/lib/api/teams";
 import { listProfiles } from "@/lib/api/profiles";
-import { listCoreWorks } from "@/lib/api/coreWorks";
-import type { CoreWorkDef, Issue, Team, User, WorkItem } from "@/types";
+import type { Issue, Team, User, WorkItem } from "@/types";
 
 interface AsyncState<T> {
   data: T;
@@ -65,13 +64,9 @@ export function useIssues(): AsyncState<Issue[]> {
 }
 
 export function useTeams(): AsyncState<Team[]> {
-  return useSupabaseList(() => listTeams(), [] as Team[], ["teams", "profiles", "core_works"]);
+  return useSupabaseList(() => listTeams(), [] as Team[], ["teams", "profiles"]);
 }
 
 export function useUsers(): AsyncState<User[]> {
   return useSupabaseList(() => listProfiles(), [] as User[], ["profiles"]);
-}
-
-export function useCoreWorks(): AsyncState<CoreWorkDef[]> {
-  return useSupabaseList(() => listCoreWorks(), [] as CoreWorkDef[], ["core_works"]);
 }

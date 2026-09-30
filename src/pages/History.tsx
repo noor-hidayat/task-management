@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
-import { StatusBadge, TypeBadge } from "@/components/status-badge";
+import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -55,7 +55,6 @@ export function History() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Task</TableHead>
-                    <TableHead>Type</TableHead>
                     <TableHead>Assignee</TableHead>
                     <TableHead>Status</TableHead>
                     <TableHead>Updated</TableHead>
@@ -68,7 +67,6 @@ export function History() {
                         <p className="font-medium">{w.title}</p>
                         <p className="font-mono text-xs text-muted-foreground">#{w.number}</p>
                       </TableCell>
-                      <TableCell><TypeBadge type={w.type} /></TableCell>
                       <TableCell>{w.assignedTo}</TableCell>
                       <TableCell><StatusBadge status={w.status} /></TableCell>
                       <TableCell className="text-xs text-muted-foreground">{w.updatedAt}</TableCell>

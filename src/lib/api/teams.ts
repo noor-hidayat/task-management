@@ -30,25 +30,12 @@ export async function listTeams(): Promise<Team[]> {
     membersByTeam.get(tid)!.push(m.id as string);
   }
 
-  // Hitung core work aktif per tim.
-  const { data: cwRows } = await supabase
-    .from("core_works")
-    .select("team_id, status")
-    .eq("status", "active");
-  const coreByTeam = new Map<string, number>();
-  for (const c of cwRows ?? []) {
-    const tid = c.team_id as string | null;
-    if (!tid) continue;
-    coreByTeam.set(tid, (coreByTeam.get(tid) ?? 0) + 1);
-  }
-
   return teams.map((t) => ({
     id: t.id,
     name: t.name,
     leaderId: t.leader_id ?? "",
     memberIds: membersByTeam.get(t.id) ?? [],
     active: t.active,
-    coreWorkCount: coreByTeam.get(t.id) ?? 0,
   }));
 }
 
@@ -72,7 +59,6 @@ export async function createTeam(input: {
     leaderId: data.leader_id ?? "",
     memberIds: input.memberIds,
     active: data.active,
-    coreWorkCount: 0,
   };
 }
 

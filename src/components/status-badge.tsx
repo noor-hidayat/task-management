@@ -15,14 +15,6 @@ export function PriorityBadge({ priority }: { priority: Priority }) {
   return <Badge variant={priority}>{priorityLabel[priority]}</Badge>;
 }
 
-export function TypeBadge({ type }: { type: "core" | "adhoc" }) {
-  return (
-    <Badge variant="outline" className="font-normal">
-      {type === "core" ? "Core Work" : "Ad-hoc"}
-    </Badge>
-  );
-}
-
 const issueStatusVariant: Record<IssueStatus, "todo" | "progress" | "completed"> = {
   open: "todo",
   in_progress: "progress",

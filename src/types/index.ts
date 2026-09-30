@@ -29,7 +29,6 @@ export interface Team {
   leaderId: string;
   memberIds: string[];
   active: boolean;
-  coreWorkCount: number;
 }
 
 export interface ShiftDef {
@@ -98,19 +97,6 @@ export interface WorkItem {
   createdAt: string;
   updatedAt: string;
   activities: Activity[];
-}
-
-export interface CoreWorkDef {
-  id: string;
-  name: string;
-  description: string;
-  team: string;
-  frequency: string;
-  schedule: string;
-  evidenceRequired: boolean;
-  checklist: string[];
-  status: "active" | "inactive";
-  todayInstance?: string;
 }
 
 export interface ScheduleRow {
