@@ -77,7 +77,7 @@ const DEFAULTS: Omit<TaskFormValues, "assignedTo"> = {
   description: "",
   priority: "medium",
   dueISO: tomorrowISO(),
-  teamId: "t-prod-a",
+  teamId: "",
   checklist: [],
 };
 

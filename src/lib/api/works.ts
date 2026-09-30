@@ -122,6 +122,12 @@ export interface CreateWorkInput {
   checklist?: string[];
 }
 
+/** Kolom UUID di Postgres: string kosong / id mock (mis. "t-prod-a") harus jadi null, kalau tidak error 22P02. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function asUuid(value: string | null | undefined): string | null {
+  return value && UUID_RE.test(value) ? value : null;
+}
+
 export async function createWork(input: CreateWorkInput): Promise<WorkItem> {
   const { data, error } = await supabase
     .from("works")
@@ -130,13 +136,13 @@ export async function createWork(input: CreateWorkInput): Promise<WorkItem> {
       type: input.type,
       priority: input.priority,
       status: input.status ?? "todo",
-      assigned_to: input.assignedToId || null,
-      team_id: input.teamId || null,
+      assigned_to: asUuid(input.assignedToId),
+      team_id: asUuid(input.teamId),
       shift: input.shift,
       due_date: input.dueDate,
       description: input.description,
       evidence_required: input.evidenceRequired,
-      created_by: input.createdById,
+      created_by: asUuid(input.createdById),
     })
     .select("*")
     .single();
@@ -175,8 +181,8 @@ export async function updateWork(
   if (patch.title !== undefined) dbPatch.title = patch.title;
   if (patch.status !== undefined) dbPatch.status = patch.status;
   if (patch.priority !== undefined) dbPatch.priority = patch.priority;
-  if (patch.assignedToId !== undefined) dbPatch.assigned_to = patch.assignedToId || null;
-  if (patch.teamId !== undefined) dbPatch.team_id = patch.teamId || null;
+  if (patch.assignedToId !== undefined) dbPatch.assigned_to = asUuid(patch.assignedToId);
+  if (patch.teamId !== undefined) dbPatch.team_id = asUuid(patch.teamId);
   if (patch.shift !== undefined) dbPatch.shift = patch.shift;
   if (patch.dueDate !== undefined) dbPatch.due_date = patch.dueDate;
   if (patch.description !== undefined) dbPatch.description = patch.description;
