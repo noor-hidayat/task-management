@@ -67,7 +67,6 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
 import { dmyToISO, toDMY } from "@/components/task-form-dialog";
-import { RichTextView } from "@/components/rich-text-editor";
 import { avatarColor, initials } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIssues, useUsers } from "@/hooks/useSupabaseLists";
@@ -497,16 +496,6 @@ export function IssueDetail() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               </div>
-            </div>
-          </section>
-
-
-
-          {/* Description — label di atas, konten full-width */}
-          <section className="space-y-2">
-            <SectionTitle icon={<AlignLeft />} title="Description" />
-            <div className="rounded-lg border bg-muted/30 px-3 py-2 min-h-[9lh]">
-              <RichTextView html={issue.description} />
             </div>
           </section>
 

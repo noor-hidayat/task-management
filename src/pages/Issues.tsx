@@ -22,15 +22,6 @@ import { createIssue } from "@/lib/api/issues";
 import { listProfiles } from "@/lib/api/profiles";
 import type { Issue, IssueStatus } from "@/types";
 
-/** HTML description -> teks polos satu baris untuk kolom tabel */
-function plainText(html: string): string {
-  return (html ?? "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function Issues() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
@@ -102,21 +93,6 @@ export function Issues() {
             {row.getValue("title")}
           </Link>
         ),
-      },
-      {
-        accessorKey: "description",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Description" />
-        ),
-        cell: ({ row }) => {
-          const text = plainText(row.original.description ?? "");
-          if (!text) return <span className="text-muted-foreground">—</span>;
-          return (
-            <span title={text} className="block max-w-[240px] truncate text-sm text-muted-foreground">
-              {text}
-            </span>
-          );
-        },
       },
       {
         id: "type",
@@ -219,7 +195,6 @@ export function Issues() {
     <div className="space-y-6">
       <PageHeader
         title="Issues"
-        description="Open → In Progress → Closed. Issue = masalah yang dilaporkan/ditangani, Task = pekerjaan yang harus dilakukan."
         actions={
           <>
             <Button onClick={() => setOpen(true)}>

@@ -24,7 +24,6 @@ type WorkRow = {
   id: string;
   number: string;
   title: string;
-  description: string;
   assignee: string;
   priority: Priority;
   dueDate: string;
@@ -66,15 +65,6 @@ function issueColumn(s: IssueStatus): WorkColumn {
   return s;
 }
 
-/** HTML description issue -> teks polos satu baris */
-function plainText(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRow[] {
   const tasks = works.filter((w) => w.assignedTo === assignee && !w.cancelled);
   const issueItems = issues.filter(
@@ -89,7 +79,6 @@ function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRo
           id: w.id,
           number: w.number,
           title: w.title,
-          description: plainText(w.description ?? ""),
           assignee: w.assignedTo,
           priority: w.priority,
           dueDate: w.dueDate,
@@ -110,7 +99,6 @@ function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRo
         id: i.id,
         number: i.number,
         title: i.title,
-        description: plainText(i.description ?? ""),
         assignee: i.assignedTo,
         priority: i.priority,
         dueDate: i.dueDate,
@@ -159,21 +147,6 @@ const listColumns: ColumnDef<WorkRow>[] = [
         {row.getValue("title")}
       </Link>
     ),
-  },
-  {
-    accessorKey: "description",
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Description" />
-    ),
-    cell: ({ row }) => {
-      const text = row.original.description || "";
-      if (!text) return <span className="text-muted-foreground">—</span>;
-      return (
-        <span title={text} className="block max-w-[240px] truncate text-sm text-muted-foreground">
-          {text}
-        </span>
-      );
-    },
   },
   {
     accessorKey: "kind",
@@ -305,9 +278,6 @@ export function MyWork() {
                             </AvatarFallback>
                           </Avatar>
                         </div>
-                        <p className="mt-0.5 truncate text-xs text-muted-foreground">
-                          {r.description || "—"}
-                        </p>
                         <div className="mt-4 flex flex-wrap items-center gap-1.5">
                           <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
                             {r.kind === "task" ? "Task" : "Issue"}

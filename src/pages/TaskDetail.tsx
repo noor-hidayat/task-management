@@ -66,7 +66,7 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
-import { RichTextView, extractChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
+import { extractChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
 import { initials, avatarColor } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers, useWorks } from "@/hooks/useSupabaseLists";
@@ -669,14 +669,6 @@ export function TaskDetail() {
               </div>
             </div>
           </section>
-
-            {/* Description — label di atas, konten full-width */}
-            <section className="space-y-2">
-              <SectionTitle icon={<AlignLeft />} title="Description" />
-              <div className="rounded-lg border bg-muted/30 px-3 py-2 min-h-[9lh]">
-                <RichTextView html={description} />
-              </div>
-            </section>
 
             {/* Checklist — tanpa kotak */}
             <section className="space-y-3">

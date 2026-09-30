@@ -28,15 +28,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useTeams, useWorks } from "@/hooks/useSupabaseLists";
 import type { WorkItem } from "@/types";
 
-/** HTML description -> teks polos satu baris untuk kolom tabel */
-function plainText(html: string): string {
-  return (html ?? "")
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 export function Tasks() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
@@ -129,21 +120,6 @@ export function Tasks() {
             {row.getValue("title")}
           </Link>
         ),
-      },
-      {
-        accessorKey: "description",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Description" />
-        ),
-        cell: ({ row }) => {
-          const text = plainText(row.original.description ?? "");
-          if (!text) return <span className="text-muted-foreground">—</span>;
-          return (
-            <span title={text} className="block max-w-[240px] truncate text-sm text-muted-foreground">
-              {text}
-            </span>
-          );
-        },
       },
       {
         accessorKey: "assignedTo",
@@ -245,7 +221,6 @@ export function Tasks() {
     <div className="space-y-6">
       <PageHeader
         title="Tasks"
-        description={`Menampilkan ${total} task dari ${works.length} data`}
         actions={
           <>
             <Button onClick={() => setOpen(true)}>

@@ -177,63 +177,61 @@ export function TaskFormDialog({
             </div>
           </div>
           {/* Kanan: Assigned To, Team, Priority, Due Date */}
-          <div className="grid content-start gap-4 md:border-l md:pl-4">
-            {showAssignee && (
-              <div className="grid gap-2">
-                <Label>Assigned To</Label>
-                <Select value={assignedTo} onValueChange={setAssignedTo}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {users.map((u) => (
-                      <SelectItem key={u.id} value={u.name}>
-                        {u.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
-            {showTeam && (
-              <div className="grid gap-2">
-                <Label>Team</Label>
-                <Select value={teamId} onValueChange={setTeamId}>
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {teams.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+          {showAssignee && (
             <div className="grid gap-2">
-              <Label>Priority</Label>
-              <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+              <Label>Assigned To</Label>
+              <Select value={assignedTo} onValueChange={setAssignedTo}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="low">Low</SelectItem>
-                  <SelectItem value="medium">Medium</SelectItem>
-                  <SelectItem value="high">High</SelectItem>
+                  {users.map((u) => (
+                    <SelectItem key={u.id} value={u.name}>
+                      {u.name}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>
+          )}
+          {showTeam && (
             <div className="grid gap-2">
-              <Label htmlFor="tf-due">Due Date</Label>
-              <Input
-                id="tf-due"
-                type="date"
-                value={dueISO}
-                onChange={(e) => setDueISO(e.target.value)}
-              />
+              <Label>Team</Label>
+              <Select value={teamId} onValueChange={setTeamId}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {teams.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>
+                      {t.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
+          )}
+          <div className="grid gap-2">
+            <Label>Priority</Label>
+            <Select value={priority} onValueChange={(v) => setPriority(v as Priority)}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="low">Low</SelectItem>
+                <SelectItem value="medium">Medium</SelectItem>
+                <SelectItem value="high">High</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label htmlFor="tf-due">Due Date</Label>
+            <Input
+              id="tf-due"
+              type="date"
+              value={dueISO}
+              onChange={(e) => setDueISO(e.target.value)}
+            />
           </div>
         </div>
         <DialogFooter>
