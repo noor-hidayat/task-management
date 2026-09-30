@@ -89,7 +89,7 @@ export function TaskFormDialog({
   dialogDescription,
   submitLabel,
   showAssignee = true,
-  showTeam = true,
+  showTeam = false,
   onSubmit,
 }: {
   open: boolean;
