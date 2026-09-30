@@ -29,10 +29,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RichTextEditor, extractChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
-import { tomorrowISO } from "@/components/task-form-dialog";
+import { toDMY, tomorrowISO } from "@/components/task-form-dialog";
 import { initials, avatarColor } from "@/lib/format";
-import { users, currentUser } from "@/lib/mock";
-import { loadWorks, saveWorks, notifyWorksUpdated } from "@/lib/storage";
+import { useAuth } from "@/contexts/AuthContext";
+import { listProfiles } from "@/lib/api/profiles";
+import { createWork } from "@/lib/api/works";
+import { useTeams, useUsers } from "@/hooks/useSupabaseLists";
 
 const createTaskSchema = z.object({
   title: z.string().min(3, "Title minimal 3 karakter."),
@@ -53,6 +55,7 @@ export function CreateTaskDialog({
   onOpenChange: (open: boolean) => void;
   onSubmit: (data: CreateTaskValues) => void;
 }) {
+  const { data: users } = useUsers();
   const form = useForm<CreateTaskValues>({
     resolver: zodResolver(createTaskSchema),
     defaultValues: {
@@ -230,46 +233,31 @@ export function CreateTaskDialog({
 
 export function CreateTaskButton({ className }: { className?: string }) {
   const [open, setOpen] = useState(false);
-  const handleCreate = (v: CreateTaskValues) => {
-    const works_ = loadWorks();
-    const uid = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    const existing = new Set(works_.map((w) => w.number));
-    let seq = 131 + works_.length;
-    let num = `TK-${String(seq).padStart(6, "0")}`;
-    while (existing.has(num)) { seq += 1; num = `TK-${String(seq).padStart(6, "0")}`; }
-    const now = new Date();
+  const { user: currentUser } = useAuth();
+  const { data: teams } = useTeams();
+  const handleCreate = async (v: CreateTaskValues) => {
+    if (!currentUser) return;
+    const defaultTeam = teams.find((t) => t.id === currentUser.teamId) ?? teams[0];
     const cleanDesc = stripChecklist(v.description);
-    const checklistItems = extractChecklist(v.description).map((t, i) => ({
-      id: `cl-${Date.now()}-${i}`,
-      label: t.title,
-      done: t.done,
-    }));
-    works_.unshift({
-      id: `w-${uid}`,
-      number: num,
+    const checklistItems = extractChecklist(v.description).map((t) => t.title);
+    const profiles = await listProfiles();
+    const assignee = v.assignee
+      ? profiles.find((u) => u.name === v.assignee)
+      : undefined;
+    await createWork({
       title: v.title,
       type: "adhoc",
-      status: "todo",
       priority: v.priority,
-      createdBy: currentUser.name,
-      assignedTo: v.assignee || currentUser.name,
-      team: "Production A",
-      teamId: "t-prod-a",
-      shift: "Shift 1",
-      dueDate: v.dueDate ? new Date(v.dueDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }) : now.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" }),
+      status: "todo",
+      assignedToId: assignee?.id ?? currentUser.id,
+      teamId: defaultTeam?.id ?? currentUser.teamId ?? "",
+      shift: currentUser.shift ?? "Shift 1",
+      dueDate: v.dueDate ? toDMY(v.dueDate) : toDMY(tomorrowISO()),
       description: isEmptyHtml(cleanDesc) ? "" : cleanDesc,
-      progress: 0,
       evidenceRequired: false,
-      evidences: [],
+      createdById: currentUser.id,
       checklist: checklistItems,
-      note: "",
-      createdAt: now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-      updatedAt: now.toLocaleString("en-GB", { day: "2-digit", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }),
-      activities: [],
-      comments: [],
     });
-    saveWorks(works_);
-    notifyWorksUpdated();
   };
   return (
     <>

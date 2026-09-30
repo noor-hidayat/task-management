@@ -1,10 +1,17 @@
 import { createContext, useContext, useState, useEffect, type ReactNode } from "react";
 import type { User } from "@/types";
+import { supabase } from "@/lib/supabase";
+import { fetchMyProfile, signInWithUsername, signOut, updateMyProfile } from "@/lib/api/auth";
 
 interface AuthContextType {
   user: User | null;
-  login: (user: User) => void;
+  /** Login dengan username + password (dipetakan ke email sintetis). */
+  login: (username: string, password: string) => Promise<{ error: string | null }>;
   logout: () => void;
+  /** Perbarui profil user yang sedang login. */
+  updateUser: (
+    patch: Partial<Pick<User, "name" | "username" | "password">>
+  ) => Promise<User | null>;
   isLoading: boolean;
 }
 
@@ -15,29 +22,57 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const stored = localStorage.getItem("tm_current_user");
-    if (stored) {
-      try {
-        setUser(JSON.parse(stored));
-      } catch {
-        localStorage.removeItem("tm_current_user");
+    let active = true;
+
+    // Muat sesi awal.
+    (async () => {
+      const profile = await fetchMyProfile();
+      if (active) {
+        setUser(profile);
+        setIsLoading(false);
       }
-    }
-    setIsLoading(false);
+    })();
+
+    // Sinkronisasi saat sesi berubah (login/logout/refresh).
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (event) => {
+      if (event === "SIGNED_OUT") {
+        if (active) setUser(null);
+        return;
+      }
+      const profile = await fetchMyProfile();
+      if (active) setUser(profile);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const login = (userData: User) => {
-    setUser(userData);
-    localStorage.setItem("tm_current_user", JSON.stringify(userData));
+  const login = async (username: string, password: string) => {
+    const { user: profile, error } = await signInWithUsername(username, password);
+    if (error || !profile) return { error: error ?? "Login gagal" };
+    setUser(profile);
+    return { error: null };
   };
 
   const logout = () => {
     setUser(null);
-    localStorage.removeItem("tm_current_user");
+    void signOut();
+  };
+
+  const updateUser = async (
+    patch: Partial<Pick<User, "name" | "username" | "password">>
+  ): Promise<User | null> => {
+    const { user: updated } = await updateMyProfile(patch);
+    if (updated) setUser(updated);
+    return updated;
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, isLoading }}>
+    <AuthContext.Provider value={{ user, login, logout, updateUser, isLoading }}>
       {children}
     </AuthContext.Provider>
   );

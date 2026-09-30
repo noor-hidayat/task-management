@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlignLeft,
@@ -15,7 +15,9 @@ import {
   Paperclip,
   Pencil,
   Play,
+  Plus,
   RotateCcw,
+  Search,
   Send,
   Users,
   X,
@@ -66,9 +68,27 @@ import { Textarea } from "@/components/ui/textarea";
 import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
 import { RichTextView, extractChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
 import { initials, avatarColor } from "@/lib/format";
-import { currentUser, users } from "@/lib/mock";
-import { loadWorks } from "@/lib/storage";
+import { useAuth } from "@/contexts/AuthContext";
+import { useUsers, useWorks } from "@/hooks/useSupabaseLists";
+import {
+  updateWork,
+  replaceChecklist,
+  logActivity,
+} from "@/lib/api/works";
+import { pushNotification } from "@/lib/api/notifications";
+import {
+  uploadAttachment,
+  deleteAttachment,
+  fetchAttachmentObjectUrl,
+} from "@/lib/api/attachments";
 import type { Priority, WorkStatus } from "@/types";
+
+function nowLabel() {
+  const d = new Date();
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 type AttachmentItem = {
   id: string;
@@ -79,36 +99,46 @@ type AttachmentItem = {
   /** URL untuk preview/unduh (object URL file lokal / dataUrl tersimpan). */
   url?: string;
   mime?: string;
+  driveFileId?: string;
 };
 type SubTask = { id: string; title: string; done: boolean };
 type Comment = { id: string; author: string; time: string; text: string };
 
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-/** Baris display: icon + label + value (bukan input) */
-function DetailRow({
+/** Field vertikal untuk panel Details kanan: label di atas, value di bawah */
+function DetailField({
   icon,
   label,
   children,
-  alignTop,
+  action,
 }: {
   icon: React.ReactNode;
   label: string;
   children: React.ReactNode;
-  alignTop?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
-    <div className={`flex gap-3 ${alignTop ? "items-start" : "items-center"}`}>
-      <span className="h-3.5 w-3.5 shrink-0 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:mt-0.5">
-        {icon}
-      </span>
-      <span className="w-24 shrink-0 text-sm text-muted-foreground">{label}</span>
-      <div className="ml-1 min-w-0 flex-1">{children}</div>
+    <div className="space-y-1">
+      <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
+        <span className="shrink-0 [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
+        <span className="ml-1.5">{label}</span>
+        {action}
+      </div>
+      <div>{children}</div>
     </div>
+  );
+}
+
+function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <Plus className="h-3.5 w-3.5" />
+    </button>
   );
 }
 
@@ -141,28 +171,25 @@ function SectionTitle({
 
 export function TaskDetail() {
   const { number } = useParams();
-  const [allWorks, setAllWorks] = useState(() => loadWorks());
-  useEffect(() => {
-    setAllWorks(loadWorks());
-    const reload = () => setAllWorks(loadWorks());
-    window.addEventListener("tm:works:updated", reload);
-    return () => window.removeEventListener("tm:works:updated", reload);
-  }, [number]);
+  const { user: currentUser } = useAuth();
+  const { data: allWorks, reload } = useWorks();
+  const { data: allUsers } = useUsers();
   const base = useMemo(
     () => allWorks.find((w) => w.number === number) ?? allWorks[0],
     [allWorks, number]
   );
   // Display state — diedit lewat dialog Edit, bukan input inline
-  const [title, setTitle] = useState(base.title);
-  const [description, setDescription] = useState(base.description);
-  const [priority, setPriority] = useState<Priority>(base.priority);
-  const [dueDate, setDueDate] = useState(base.dueDate);
-  const [status, setStatus] = useState<WorkStatus>(base.status);
-  const [cancelled, setCancelled] = useState(!!base.cancelled);
+  const [title, setTitle] = useState(base?.title ?? "");
+  const [description, setDescription] = useState(base?.description ?? "");
+  const [priority, setPriority] = useState<Priority>(base?.priority ?? "medium");
+  const [dueDate, setDueDate] = useState(base?.dueDate ?? "");
+  const [status, setStatus] = useState<WorkStatus>(base?.status ?? "todo");
+  const [cancelled, setCancelled] = useState(!!base?.cancelled);
   const [editOpen, setEditOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
 
   useEffect(() => {
+    if (!base) return;
     setTitle(base.title);
     setDescription(base.description);
     setPriority(base.priority);
@@ -172,7 +199,7 @@ export function TaskDetail() {
   }, [base]);
 
   // ---- Assigned To ----
-  const [assignees, setAssignees] = useState<string[]>([base.assignedTo]);
+  const [assignees, setAssignees] = useState<string[]>(base ? [base.assignedTo] : []);
   const [assigneeDialogOpen, setAssigneeDialogOpen] = useState(false);
   const [pendingAssignees, setPendingAssignees] = useState<string[]>([]);
   const [pickerQuery, setPickerQuery] = useState("");
@@ -180,8 +207,19 @@ export function TaskDetail() {
   const pickerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setAssignees([base.assignedTo]);
+    setAssignees(base ? [base.assignedTo] : []);
   }, [base]);
+
+  /** Simpan perubahan ke Supabase + catat aktivitas, lalu reload. */
+  const persist = useCallback(
+    async (patch: Parameters<typeof updateWork>[1], activity?: string) => {
+      if (!base) return;
+      await updateWork(base.id, patch);
+      if (activity) await logActivity("work", base.id, activity, currentUser?.id ?? null);
+      reload();
+    },
+    [base, currentUser, reload]
+  );
 
   const atMatch = pickerQuery.match(/@([\w ]*)$/);
   const pickerNormalized = atMatch ? atMatch[1].toLowerCase().trim() : null;
@@ -189,20 +227,20 @@ export function TaskDetail() {
     () =>
       pickerNormalized === null
         ? []
-        : users.filter(
+        : allUsers.filter(
             (u) =>
               !assignees.includes(u.name) &&
               !pendingAssignees.includes(u.name) &&
               u.name.toLowerCase().includes(pickerNormalized)
           ),
-    [assignees, pendingAssignees, pickerNormalized]
+    [assignees, pendingAssignees, pickerNormalized, allUsers]
   );
   const addPending = (name: string) => {
     const clean = name.replace(/^@/, "").trim();
     if (!clean) return;
     const found =
-      users.find((u) => u.name.toLowerCase() === clean.toLowerCase()) ??
-      users.find((u) => u.name.toLowerCase().includes(clean.toLowerCase()));
+      allUsers.find((u) => u.name.toLowerCase() === clean.toLowerCase()) ??
+      allUsers.find((u) => u.name.toLowerCase().includes(clean.toLowerCase()));
     const toAdd = found?.name ?? clean;
     if (assignees.includes(toAdd) || pendingAssignees.includes(toAdd)) {
       setPickerQuery("");
@@ -222,37 +260,95 @@ export function TaskDetail() {
   };
 
   // ---- Attachment ----
-  const [attachments, setAttachments] = useState<AttachmentItem[]>(() =>
-    base.evidences.map((e) => ({
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
+  const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const completeFileRef = useRef<HTMLInputElement>(null);
+  // Object URL (hasil fetch dari Drive) per attachment id.
+  const objectUrlsRef = useRef<Map<string, string>>(new Map());
+  const [objectUrls, setObjectUrls] = useState<Record<string, string>>({});
+
+  // Bangun daftar attachment dari evidences + ambil object URL untuk preview.
+  useEffect(() => {
+    if (!base) {
+      setAttachments([]);
+      return;
+    }
+    const items: AttachmentItem[] = base.evidences.map((e) => ({
       id: e.id,
       name: e.fileName,
       meta: `${e.fileSize} • ${e.uploadedBy}`,
       kind: /jpg|jpeg|png|gif|webp|image/i.test(`${e.fileType} ${e.fileName}`)
         ? "image"
         : "file",
-      url: e.dataUrl,
+      preview: objectUrls[e.id] && /^image\//i.test(e.fileType) ? objectUrls[e.id] : undefined,
+      url: objectUrls[e.id],
       mime: e.fileType,
-    }))
-  );
-  const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const completeFileRef = useRef<HTMLInputElement>(null);
-  const onPickFiles = (files: FileList | null) => {
-    if (!files) return;
-    const next: AttachmentItem[] = Array.from(files).map((f, i) => {
-      const isImage = f.type.startsWith("image/");
-      const url = URL.createObjectURL(f);
-      return {
-        id: `local-${Date.now()}-${i}`,
-        name: f.name,
-        meta: `${formatSize(f.size)} • You`,
-        kind: isImage ? "image" : "file",
-        preview: isImage ? url : undefined,
-        url,
-        mime: f.type,
-      };
-    });
-    setAttachments((prev) => [...prev, ...next]);
+      driveFileId: e.driveFileId,
+    }));
+    setAttachments(items);
+  }, [base, objectUrls]);
+
+  // Fetch object URL untuk tiap evidence yang belum punya, revoke saat berubah/unmount.
+  useEffect(() => {
+    if (!base) return;
+    const ids = new Set(base.evidences.map((e) => e.id));
+    // Revoke URL untuk attachment yang sudah tidak ada.
+    for (const [id, url] of objectUrlsRef.current.entries()) {
+      if (!ids.has(id)) {
+        URL.revokeObjectURL(url);
+        objectUrlsRef.current.delete(id);
+      }
+    }
+    let active = true;
+    (async () => {
+      const additions: Record<string, string> = {};
+      for (const e of base.evidences) {
+        if (!e.driveFileId || objectUrlsRef.current.has(e.id)) continue;
+        try {
+          const url = await fetchAttachmentObjectUrl(e.driveFileId);
+          if (!url) continue;
+          if (!active) {
+            URL.revokeObjectURL(url);
+            continue;
+          }
+          objectUrlsRef.current.set(e.id, url);
+          additions[e.id] = url;
+        } catch {
+          /* preview tidak tersedia */
+        }
+      }
+      if (active && Object.keys(additions).length > 0) {
+        setObjectUrls((prev) => ({ ...prev, ...additions }));
+      }
+    })();
+    return () => {
+      active = false;
+    };
+  }, [base]);
+
+  // Revoke semua object URL saat unmount.
+  useEffect(() => {
+    const store = objectUrlsRef.current;
+    return () => {
+      for (const url of store.values()) URL.revokeObjectURL(url);
+      store.clear();
+    };
+  }, []);
+
+  const onPickFiles = async (files: FileList | null) => {
+    if (!files || files.length === 0 || !base) return;
+    const list = Array.from(files);
+    for (const f of list) {
+      await uploadAttachment("work", base.id, base.number, f);
+    }
+    await logActivity(
+      "work",
+      base.id,
+      list.length === 1 ? `added attachment (${list[0].name})` : `added ${list.length} attachments`,
+      currentUser?.id ?? null
+    );
+    reload();
   };
   const downloadItem = (a: AttachmentItem) => {
     if (!a.url) return;
@@ -261,13 +357,29 @@ export function TaskDetail() {
     el.download = a.name;
     el.click();
   };
-  const removeAttachment = (id: string) =>
-    setAttachments((prev) => {
-      const target = prev.find((a) => a.id === id);
-      if (target?.preview) URL.revokeObjectURL(target.preview);
-      if (target?.url && target.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
-      return prev.filter((a) => a.id !== id);
-    });
+  const removeAttachment = async (id: string) => {
+    if (!base) return;
+    const target = attachments.find((a) => a.id === id);
+    const url = objectUrlsRef.current.get(id);
+    if (url) {
+      URL.revokeObjectURL(url);
+      objectUrlsRef.current.delete(id);
+      setObjectUrls((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    }
+    if (!target?.driveFileId) return;
+    await deleteAttachment(id, target.driveFileId);
+    await logActivity(
+      "work",
+      base.id,
+      target ? `removed attachment (${target.name})` : "removed attachment",
+      currentUser?.id ?? null
+    );
+    reload();
+  };
 
   // ---- Checklist (gabungan tersimpan + hasil tombol checklist di description) ----
   const mergeChecklist = (stored: SubTask[], html: string): SubTask[] => {
@@ -282,12 +394,15 @@ export function TaskDetail() {
     return next;
   };
   const [subTasks, setSubTasks] = useState<SubTask[]>(() =>
-    mergeChecklist(
-      base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
-      base.description
-    )
+    base
+      ? mergeChecklist(
+          base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
+          base.description
+        )
+      : []
   );
   useEffect(() => {
+    if (!base) return;
     setSubTasks(
       mergeChecklist(
         base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
@@ -298,11 +413,46 @@ export function TaskDetail() {
   const subDoneCount = subTasks.filter((s) => s.done).length;
   const checkProgress =
     subTasks.length === 0 ? 0 : Math.round((subDoneCount / subTasks.length) * 100);
-  const toggleSubTask = (id: string) =>
-    setSubTasks((prev) => prev.map((s) => (s.id === id ? { ...s, done: !s.done } : s)));
+  const toggleSubTask = async (id: string) => {
+    if (!base) return;
+    const next = subTasks.map((s) => (s.id === id ? { ...s, done: !s.done } : s));
+    setSubTasks(next);
+    await replaceChecklist(
+      base.id,
+      next.map((s) => ({ id: s.id, label: s.title, done: s.done }))
+    );
+    reload();
+  };
+
+  const startTask = async () => {
+    setStatus("in_progress");
+    await persist({ status: "in_progress" }, "started task");
+  };
+
+  const reopenTask = async () => {
+    setStatus("in_progress");
+    await persist({ status: "in_progress" }, "reopened task");
+  };
+
+  const completeTask = async () => {
+    setStatus("completed");
+    await persist({ status: "completed", progress: 100 }, "completed task");
+    setCompleteOpen(false);
+  };
 
   // ---- Comments ----
+  const toLocalComments = (w: NonNullable<typeof base>): Comment[] =>
+    (w.comments ?? []).map((c) => ({
+      id: c.id,
+      author: c.author,
+      time: c.time ?? c.at ?? "",
+      text: c.text,
+    }));
   const [comments, setComments] = useState<Comment[]>([]);
+  useEffect(() => {
+    setComments(base ? toLocalComments(base) : []);
+    setDraft("");
+  }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
   const [draft, setDraft] = useState("");
   const [mentionQuery, setMentionQuery] = useState<string | null>(null);
   const [mentionStart, setMentionStart] = useState(0);
@@ -312,12 +462,14 @@ export function TaskDetail() {
   const mentionSuggestions = useMemo(() => {
     if (mentionQuery === null) return [];
     const q = mentionQuery.toLowerCase();
-    return users.filter((u) => u.name.toLowerCase().includes(q)).slice(0, 3);
-  }, [mentionQuery]);
+    return allUsers.filter((u) => u.name.toLowerCase().includes(q)).slice(0, 3);
+  }, [mentionQuery, allUsers]);
   const updateMention = (value: string, cursor: number) => {
     const before = value.slice(0, cursor);
-    const m = before.match(/@([\w ]*)$/);
-    if (m && !m[0].includes("\n")) {
+    // "@" diikuti kata (boleh multi-kata) tanpa newline. Spasi ganda / newline
+    // menghentikan mention agar query tidak "bocor" menelan seluruh teks.
+    const m = before.match(/@([\w]+(?:\s[\w]+)*)$/);
+    if (m) {
       setMentionQuery(m[1]);
       setMentionStart(cursor - m[0].length);
       setMentionActive(0);
@@ -341,7 +493,7 @@ export function TaskDetail() {
     });
   };
   const renderWithMentions = (text: string) => {
-    const names = [...users.map((u) => u.name)].sort((a, b) => b.length - a.length);
+    const names = [...allUsers.map((u) => u.name)].sort((a, b) => b.length - a.length);
     const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const re = new RegExp(`@(${names.map(esc).join("|")})`, "g");
     const parts = text.split(re);
@@ -355,40 +507,98 @@ export function TaskDetail() {
       )
     );
   };
-  const postComment = () => {
+  const postComment = async () => {
+    if (!base) return;
     const clean = draft.trim();
     if (!clean) return;
-    setComments((prev) => [
-      ...prev,
-      { id: `c-${Date.now()}`, author: currentUser.name, time: "Baru saja", text: clean },
-    ]);
+    const at = nowLabel();
+    const entry = { id: `c-${Date.now()}`, author: currentUser?.name ?? "—", time: at, text: clean };
+    setComments((prev) => [...prev, entry]);
+    await logActivity("work", base.id, "commented", currentUser?.id ?? null);
+    // Kirim notifikasi mention ke setiap user yang disebut (@Nama), kecuali diri sendiri.
+    const names = [...allUsers.map((u) => u.name)].sort((a, b) => b.length - a.length);
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const mentioned = new Set<string>();
+    if (names.length > 0) {
+      const re = new RegExp(`@(${names.map(esc).join("|")})(?![\\w])`, "g");
+      for (const m of clean.matchAll(re)) mentioned.add(m[1]);
+    }
+    for (const name of mentioned) {
+      if (name === currentUser?.name) continue;
+      const target = allUsers.find((u) => u.name === name);
+      if (!target) continue;
+      await pushNotification({
+        type: "mention",
+        title: "Anda disebut",
+        message: clean,
+        fromId: currentUser?.id ?? null,
+        forUserId: target.id,
+        link: `/tasks/${base.number}`,
+      });
+    }
     setDraft("");
     setMentionQuery(null);
     if (commentInputRef.current) commentInputRef.current.style.height = "auto";
   };
-  const submitAssigneeDialog = () => {
-    if (pendingAssignees.length > 0) {
-      setAssignees((prev) => [
-        ...prev,
-        ...pendingAssignees.filter((p) => !prev.includes(p)),
-      ]);
+  const submitAssigneeDialog = async () => {
+    if (!base) return;
+    const added = pendingAssignees.filter((p) => !assignees.includes(p));
+    if (added.length > 0) {
+      setAssignees((prev) => [...prev, ...added]);
+    }
+    const notes: string[] = [];
+    let nextComments = comments;
+    if (added.length > 0) {
+      const primary = allUsers.find((u) => u.name === added[0]);
+      if (primary) await updateWork(base.id, { assignedToId: primary.id });
+      notes.push(`assigned ${added.join(", ")}`);
     }
     if (dialogComment.trim()) {
-      setComments((prev) => [
-        ...prev,
-        {
-          id: `c-${Date.now()}`,
-          author: currentUser.name,
-          time: "Baru saja",
-          text: dialogComment.trim(),
-        },
-      ]);
+      const at = nowLabel();
+      const entry = {
+        id: `c-${Date.now()}`,
+        author: currentUser?.name ?? "—",
+        time: at,
+        text: dialogComment.trim(),
+      };
+      nextComments = [...comments, entry];
+      setComments(nextComments);
+    }
+    if (notes.length > 0 || dialogComment.trim()) {
+      await logActivity(
+        "work",
+        base.id,
+        notes.length > 0 ? notes.join("; ") : "added a note",
+        currentUser?.id ?? null
+      );
+      reload();
+    }
+    for (const name of added) {
+      if (name === currentUser?.name) continue;
+      const target = allUsers.find((u) => u.name === name);
+      if (!target) continue;
+      await pushNotification({
+        type: "assignment",
+        title: "Task baru ditugaskan",
+        message: base.title,
+        fromId: currentUser?.id ?? null,
+        forUserId: target.id,
+        link: `/tasks/${base.number}`,
+      });
     }
     setPendingAssignees([]);
     setPickerQuery("");
     setDialogComment("");
     setAssigneeDialogOpen(false);
   };
+
+  if (!base) {
+    return (
+      <div className="flex min-h-[40vh] items-center justify-center">
+        <p className="text-sm text-muted-foreground">Task tidak ditemukan.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-6 lg:h-[calc(100svh-5.5rem)]">
@@ -414,168 +624,56 @@ export function TaskDetail() {
         </Breadcrumb>
       </div>
 
-      {/* ===== Main scroll | Comments panel fixed ===== */}
+      {/* ===== Main scroll | Details panel kanan ===== */}
       <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-0">
         <main className="min-w-0 flex-1 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-6">
           <section className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-2">
-              <h3 className="truncate text-lg font-bold leading-none tracking-tight">
-                {title || "Untitled task"}
-              </h3>
-              {cancelled && <Badge variant="destructive">Cancelled</Badge>}
-            </div>
-            <div className="flex items-center gap-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    Action <ChevronDown className="h-4 w-4" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end">
-                  {status === "completed" ? (
-                    <DropdownMenuItem onClick={() => setStatus("in_progress")}>
-                      <RotateCcw className="h-4 w-4" /> Reopen Task
-                    </DropdownMenuItem>
-                  ) : (
-                    <>
-                      <DropdownMenuItem onClick={() => setEditOpen(true)}>
-                        <Pencil className="h-4 w-4" /> Edit Task
-                      </DropdownMenuItem>
-                      {status === "todo" ? (
-                        <DropdownMenuItem onClick={() => setStatus("in_progress")}>
-                          <Play className="h-4 w-4" /> Start Task
-                        </DropdownMenuItem>
-                      ) : (
-                        <DropdownMenuItem onClick={() => setCompleteOpen(true)}>
-                          <CheckCircle2 className="h-4 w-4" /> Complete Task
-                        </DropdownMenuItem>
-                      )}
-                      <DropdownMenuItem onClick={openAssigneeDialog}>
-                        <Users className="h-4 w-4" /> Assigned To
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
-                        <Paperclip className="h-4 w-4" /> Add Attachment
-                      </DropdownMenuItem>
-                    </>
-                  )}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-
-          </section>
-          {/* Status | Priority | Due Date | Assigned To — display rows */}
-          <div className="space-y-1.5">
-              <DetailRow icon={<CircleDot />} label="Status">
-                <span className="flex flex-wrap items-center gap-2">
-                  <StatusBadge status={status} />
-                </span>
-              </DetailRow>
-              <DetailRow icon={<Flag />} label="Priority">
-                <PriorityBadge priority={priority} />
-              </DetailRow>
-              <DetailRow icon={<CalendarDays />} label="Due Date">
-                <span className="text-sm">{dueDate || "—"}</span>
-              </DetailRow>
-              <DetailRow icon={<Users />} label="Assigned To">
-                <span className="flex items-center gap-2">
-                  <span className="flex items-center -space-x-2">
-                    {assignees.map((name) => (
-                      <Avatar
-                        key={name}
-                        title={name}
-                        className="h-6 w-6 cursor-default border-2 border-background"
-                      >
-                        <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
-                          {initials(name)}
-                        </AvatarFallback>
-                      </Avatar>
-                    ))}
-                    {assignees.length === 0 && (
-                      <span className="text-sm text-muted-foreground">—</span>
-                    )}
-                  </span>
-                </span>
-              </DetailRow>
-            </div>
-
-            {/* Attachment — display row sama kayak Assigned To */}
-            <DetailRow icon={<Paperclip />} label="Attachment" alignTop>
-              <div className="space-y-2">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    onPickFiles(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
-                {attachments.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
-                ) : (
-                  <AttachmentGroup>
-                    {attachments.map((a) =>
-                      a.preview ? (
-                        <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
-                          <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
-                          <AttachmentMedia variant="image">
-                            <img
-                              src={a.preview}
-                              alt={a.name}
-                              className="h-full w-full object-cover"
-                            />
-                          </AttachmentMedia>
-                          <AttachmentContent>
-                            <AttachmentTitle>{a.name}</AttachmentTitle>
-                            <AttachmentDescription>{a.meta}</AttachmentDescription>
-                          </AttachmentContent>
-                          <AttachmentActions>
-                            <AttachmentAction
-                              aria-label={`Remove ${a.name}`}
-                              onClick={() => removeAttachment(a.id)}
-                            >
-                              <X />
-                            </AttachmentAction>
-                          </AttachmentActions>
-                        </Attachment>
-                      ) : (
-                        <Attachment key={a.id} size="sm" className="w-56 cursor-pointer" title="Preview">
-                          <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
-                          <AttachmentMedia>
-                            {a.kind === "image" ? <ImageIcon /> : <FileText />}
-                          </AttachmentMedia>
-                          <AttachmentContent>
-                            <AttachmentTitle>{a.name}</AttachmentTitle>
-                            <AttachmentDescription>{a.meta}</AttachmentDescription>
-                          </AttachmentContent>
-                          <AttachmentActions>
-                            {a.url && (
-                              <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
-                                <Download />
-                              </AttachmentAction>
-                            )}
-                            <AttachmentAction
-                              aria-label={`Remove ${a.name}`}
-                              onClick={() => removeAttachment(a.id)}
-                            >
-                              <X />
-                            </AttachmentAction>
-                          </AttachmentActions>
-                        </Attachment>
-                      )
-                    )}
-                  </AttachmentGroup>
-                )}
+            <div className="flex flex-row items-start justify-between gap-3">
+              <div className="flex min-w-0 items-center gap-2">
+                <h3 className="truncate text-lg font-bold leading-none tracking-tight">
+                  {title || "Untitled task"}
+                </h3>
+                {cancelled && <Badge variant="destructive">Cancelled</Badge>}
               </div>
-            </DetailRow>
+              <div className="flex shrink-0 items-center gap-2">
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm">
+                      Action <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    {status === "completed" ? (
+                      <DropdownMenuItem onClick={reopenTask}>
+                        <RotateCcw className="h-4 w-4" /> Reopen Task
+                      </DropdownMenuItem>
+                    ) : (
+                      <>
+                        <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                          <Pencil className="h-4 w-4" /> Edit Task
+                        </DropdownMenuItem>
+                        {status === "todo" ? (
+                          <DropdownMenuItem onClick={startTask}>
+                            <Play className="h-4 w-4" /> Start Task
+                          </DropdownMenuItem>
+                        ) : (
+                          <DropdownMenuItem onClick={() => setCompleteOpen(true)}>
+                            <CheckCircle2 className="h-4 w-4" /> Complete Task
+                          </DropdownMenuItem>
+                        )}
+
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </div>
+          </section>
 
             {/* Description — label di atas, konten full-width */}
             <section className="space-y-2">
               <SectionTitle icon={<AlignLeft />} title="Description" />
-              <div className="rounded-lg border bg-muted/30 px-3 py-2">
+              <div className="rounded-lg border bg-muted/30 px-3 py-2 min-h-[9lh]">
                 <RichTextView html={description} />
               </div>
             </section>
@@ -619,72 +717,13 @@ export function TaskDetail() {
               {subTasks.length === 0 && (
                 <p className="text-sm text-muted-foreground">Belum ada checklist.</p>
               )}
-              <p className="text-xs text-muted-foreground">
-                Tambah / ubah checklist lewat tombol Edit.
-              </p>
             </section>
             <div className="border-t" />
 
-            {/* Activity — ikut scroll di Main Content */}
+            {/* Comments — di bawah description, di atas activity */}
             <section className="space-y-4">
-              <SectionTitle title="Activity" icon={<CircleDot />} count={base.activities.length} />
-              {base.activities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
-              ) : (
-                <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
-                  {base.activities.map((a) => (
-                    <li key={a.id} className="relative">
-                      <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
-                      <div className="flex items-center gap-2">
-                        <Avatar className="h-5 w-5">
-                          <AvatarFallback className={`text-[8px] ${avatarColor(a.actor)}`}>
-                            {initials(a.actor)}
-                          </AvatarFallback>
-                        </Avatar>
-                        <span className="text-xs font-medium">{a.actor}</span>
-                      </div>
-                      <p className="mt-1 text-sm">{a.text}</p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">{a.at}</p>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </section>
-          </main>
-
-          {/* Comments panel kanan — fixed, hanya list yang scroll */}
-          <aside className="flex min-h-0 flex-col gap-4 lg:w-[360px] lg:shrink-0 lg:border-l lg:pl-6">
-            <div className="shrink-0">
               <SectionTitle title="Comments" icon={<AlignLeft />} count={comments.length} />
-            </div>
-            <div className="max-h-96 min-h-0 flex-1 overflow-y-auto pr-1 lg:max-h-none">
-              {comments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
-              ) : (
-                <ul className="space-y-4">
-                  {comments.map((c) => (
-                    <li key={c.id} className="flex gap-2.5">
-                      <Avatar className="h-7 w-7 shrink-0">
-                        <AvatarFallback className={`text-[10px] ${avatarColor(c.author)}`}>
-                          {initials(c.author)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1 rounded-lg bg-muted/50 px-3 py-2">
-                        <div className="flex flex-wrap items-baseline gap-x-2">
-                          <span className="text-xs font-medium">{c.author}</span>
-                          <span className="text-xs text-muted-foreground">{c.time}</span>
-                        </div>
-                        <p className="mt-0.5 text-sm whitespace-pre-wrap">
-                          {renderWithMentions(c.text)}
-                        </p>
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-            <div className="shrink-0">
-              <div className="relative">
+            <div className="relative">
                 <div className="flex items-center gap-2 rounded-xl border bg-background p-2 focus-within:ring-1 focus-within:ring-ring">
                   <Textarea
                     ref={commentInputRef}
@@ -778,9 +817,178 @@ export function TaskDetail() {
                   </div>
                 )}
               </div>
+            <div>
+              {comments.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
+              ) : (
+                <ul className="space-y-4">
+                  {comments.map((c) => (
+                    <li key={c.id} className="flex gap-2.5">
+                      <Avatar className="h-7 w-7 shrink-0">
+                        <AvatarFallback className={`text-[10px] ${avatarColor(c.author)}`}>
+                          {initials(c.author)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1 rounded-lg bg-muted/50 px-3 py-2">
+                        <div className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-xs font-medium">{c.author}</span>
+                          <span className="text-xs text-muted-foreground">{c.time}</span>
+                        </div>
+                        <p className="mt-0.5 text-sm whitespace-pre-wrap">
+                          {renderWithMentions(c.text)}
+                        </p>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
             </div>
-          </aside>
-        </div>
+            </section>
+            <div className="border-t" />
+
+            {/* Activity */}
+            <section className="space-y-4">
+              <SectionTitle title="Activity" icon={<CircleDot />} count={base.activities.length} />
+              {base.activities.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
+              ) : (
+                <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
+                  {base.activities.map((a) => (
+                    <li key={a.id} className="relative">
+                      <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
+                      <div className="flex items-center gap-2">
+                        <Avatar className="h-5 w-5">
+                          <AvatarFallback className={`text-[8px] ${avatarColor(a.actor)}`}>
+                            {initials(a.actor)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="text-xs font-medium">{a.actor}</span>
+                      </div>
+                      <p className="mt-1 text-sm">{a.text}</p>
+                      <p className="mt-0.5 text-xs text-muted-foreground">{a.at}</p>
+                    </li>
+                  ))}
+                </ol>
+              )}
+            </section>
+          </main>
+
+        {/* Details panel kanan — Status | Priority | Due Date | Assigned To */}
+        <aside className="min-w-0 lg:w-[320px] lg:shrink-0 lg:border-l lg:pl-6">
+          <div className="space-y-4 lg:sticky lg:top-0">
+            <div className="space-y-4">
+              <DetailField
+                icon={<Users />}
+                label="Assigned To"
+                action={<AddButton label="Add assignees" onClick={openAssigneeDialog} />}
+              >
+                {assignees.length > 0 ? (
+                  <span className="flex items-center -space-x-2">
+                    {assignees.map((name) => (
+                      <Avatar
+                        key={name}
+                        title={name}
+                        className="h-6 w-6 cursor-default border-2 border-background"
+                      >
+                        <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+                          {initials(name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
+                )}
+              </DetailField>
+              <DetailField icon={<CircleDot />} label="Status">
+                <StatusBadge status={status} />
+              </DetailField>
+              <DetailField icon={<Flag />} label="Priority">
+                <PriorityBadge priority={priority} />
+              </DetailField>
+              <DetailField icon={<CalendarDays />} label="Due Date">
+                <span className="text-sm">{dueDate || "—"}</span>
+              </DetailField>
+              <DetailField
+                icon={<Paperclip />}
+                label="Attachment"
+                action={
+                  <AddButton label="Add attachment" onClick={() => fileInputRef.current?.click()} />
+                }
+              >
+                <div className="space-y-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      onPickFiles(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                  {attachments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
+                  ) : (
+                    <AttachmentGroup>
+                      {attachments.map((a) =>
+                        a.preview ? (
+                          <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
+                            <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
+                            <AttachmentMedia variant="image">
+                              <img
+                                src={a.preview}
+                                alt={a.name}
+                                className="h-full w-full object-cover"
+                              />
+                            </AttachmentMedia>
+                            <AttachmentContent>
+                              <AttachmentTitle>{a.name}</AttachmentTitle>
+                              <AttachmentDescription>{a.meta}</AttachmentDescription>
+                            </AttachmentContent>
+                            <AttachmentActions>
+                              <AttachmentAction
+                                aria-label={`Remove ${a.name}`}
+                                onClick={() => removeAttachment(a.id)}
+                              >
+                                <X />
+                              </AttachmentAction>
+                            </AttachmentActions>
+                          </Attachment>
+                        ) : (
+                          <Attachment key={a.id} size="sm" className="w-full cursor-pointer" title="Preview">
+                            <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
+                            <AttachmentMedia>
+                              {a.kind === "image" ? <ImageIcon /> : <FileText />}
+                            </AttachmentMedia>
+                            <AttachmentContent>
+                              <AttachmentTitle>{a.name}</AttachmentTitle>
+                              <AttachmentDescription>{a.meta}</AttachmentDescription>
+                            </AttachmentContent>
+                            <AttachmentActions>
+                              {a.url && (
+                                <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
+                                  <Download />
+                                </AttachmentAction>
+                              )}
+                              <AttachmentAction
+                                aria-label={`Remove ${a.name}`}
+                                onClick={() => removeAttachment(a.id)}
+                              >
+                                <X />
+                              </AttachmentAction>
+                            </AttachmentActions>
+                          </Attachment>
+                        )
+                      )}
+                    </AttachmentGroup>
+                  )}
+                </div>
+              </DetailField>
+            </div>
+          </div>
+        </aside>
+      </div>
 
       {/* Edit Task — popup sama persis kayak Create Task */}
       <TaskFormDialog
@@ -798,13 +1006,28 @@ export function TaskDetail() {
           dueISO: dmyToISO(dueDate),
           checklist: subTasks,
         }}
-        onSubmit={(v) => {
+        onSubmit={async (v) => {
           const cleanDesc = stripChecklist(v.description);
+          const nextDesc = isEmptyHtml(cleanDesc) ? "" : cleanDesc;
+          const nextDue = toDMY(v.dueISO) || "—";
+          const nextChecklist = mergeChecklist(v.checklist, v.description);
           setTitle(v.title);
-          setDescription(isEmptyHtml(cleanDesc) ? "" : cleanDesc);
+          setDescription(nextDesc);
           setPriority(v.priority);
-          setDueDate(toDMY(v.dueISO) || "—");
-          setSubTasks(mergeChecklist(v.checklist, v.description));
+          setDueDate(nextDue);
+          setSubTasks(nextChecklist);
+          await updateWork(base.id, {
+            title: v.title,
+            description: nextDesc,
+            priority: v.priority,
+            dueDate: nextDue,
+          });
+          await replaceChecklist(
+            base.id,
+            nextChecklist.map((s) => ({ id: s.id, label: s.title, done: s.done }))
+          );
+          await logActivity("work", base.id, "edited task", currentUser?.id ?? null);
+          reload();
         }}
       />
 
@@ -862,12 +1085,7 @@ export function TaskDetail() {
               {subTasks.length > 0 && subTasks.some((s) => !s.done) ? "Tutup" : "Batal"}
             </Button>
             {!(subTasks.length > 0 && subTasks.some((s) => !s.done)) && (
-              <Button
-                onClick={() => {
-                  setStatus("completed");
-                  setCompleteOpen(false);
-                }}
-              >
+              <Button onClick={completeTask}>
                 Complete Task
               </Button>
             )}
@@ -878,101 +1096,120 @@ export function TaskDetail() {
       {/* Preview attachment */}
       <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
 
-      {/* Popup tambah assignee */}
+      {/* Add assignees popup */}
       <Dialog open={assigneeDialogOpen} onOpenChange={setAssigneeDialogOpen}>
-        <DialogContent>
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Tambah assignee</DialogTitle>
-            <DialogDescription>
-              Ketik @ untuk pilih user, tulis komentar sekalian jika perlu.
-            </DialogDescription>
+            <DialogTitle>Add assignees</DialogTitle>
           </DialogHeader>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="assignee-picker">User</FieldLabel>
-              {pendingAssignees.length > 0 && (
-                <div className="flex flex-wrap gap-1.5">
-                  {pendingAssignees.map((name) => (
-                    <Badge
-                      key={name}
-                      variant="secondary"
-                      className="inline-flex items-center gap-1.5 py-1 pr-1 pl-1.5 font-normal"
-                    >
-                      <Avatar className="h-4 w-4">
-                        <AvatarFallback className="text-[8px]">{initials(name)}</AvatarFallback>
-                      </Avatar>
-                      <span className="max-w-32 truncate">{name}</span>
-                      <button
-                        type="button"
-                        aria-label={`Hapus ${name}`}
-                        onClick={() => removePending(name)}
-                        className="rounded-full p-0.5 hover:bg-muted"
+              <FieldLabel htmlFor="assignee-picker">
+                Assignees
+                {pendingAssignees.length > 0 && (
+                  <span className="ml-1.5 font-normal text-muted-foreground">
+                    {pendingAssignees.length}
+                  </span>
+                )}
+              </FieldLabel>
+              <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+                {pendingAssignees.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+                    {pendingAssignees.map((name) => (
+                      <Badge
+                        key={name}
+                        variant="secondary"
+                        className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal"
                       >
-                        <X className="h-3 w-3" />
-                      </button>
-                    </Badge>
-                  ))}
-                </div>
-              )}
-              <div className="relative">
-                <Input
-                  ref={pickerInputRef}
-                  id="assignee-picker"
-                  value={pickerQuery}
-                  onChange={(e) => setPickerQuery(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
-                      e.preventDefault();
-                      if (pickerSuggestions.length > 0) {
-                        addPending(pickerSuggestions[0].name);
-                      } else if (pickerQuery.trim()) {
-                        addPending(pickerQuery);
-                      }
-                    } else if (
-                      e.key === "Backspace" &&
-                      pickerQuery === "" &&
-                      pendingAssignees.length > 0
-                    ) {
-                      removePending(pendingAssignees[pendingAssignees.length - 1]);
-                    }
-                  }}
-                  placeholder="Ketik @username… cth: @Operator B"
-                  autoComplete="off"
-                />
-                {pickerSuggestions.length > 0 && (
-                  <div className="absolute right-0 left-0 top-full z-50 mt-1 overflow-hidden rounded-md border bg-popover shadow-md">
-                    {pickerSuggestions.slice(0, 3).map((u) => (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          addPending(u.name);
-                        }}
-                        className="flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm hover:bg-accent"
-                      >
-                        <Avatar className="h-6 w-6">
-                          <AvatarFallback className="text-[10px]">
-                            {initials(u.name)}
+                        <Avatar className="h-4 w-4">
+                          <AvatarFallback className={`text-[8px] ${avatarColor(name)}`}>
+                            {initials(name)}
                           </AvatarFallback>
                         </Avatar>
-                        <span className="flex-1 truncate font-medium">{u.name}</span>
-                        <span className="text-xs text-muted-foreground">
-                          @{u.name.toLowerCase().replace(/\s+/g, "")}
-                        </span>
-                      </button>
+                        <span className="max-w-32 truncate">{name}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${name}`}
+                          onClick={() => removePending(name)}
+                          className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
                     ))}
                   </div>
                 )}
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={pickerInputRef}
+                    id="assignee-picker"
+                    value={pickerQuery}
+                    onChange={(e) => setPickerQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+                        e.preventDefault();
+                        if (pickerSuggestions.length > 0) {
+                          addPending(pickerSuggestions[0].name);
+                        } else if (pickerQuery.trim()) {
+                          addPending(pickerQuery);
+                        }
+                      } else if (
+                        e.key === "Backspace" &&
+                        pickerQuery === "" &&
+                        pendingAssignees.length > 0
+                      ) {
+                        removePending(pendingAssignees[pendingAssignees.length - 1]);
+                      }
+                    }}
+                    placeholder={
+                      pendingAssignees.length > 0
+                        ? "Search to add more people…"
+                        : "Search people by name…"
+                    }
+                    autoComplete="off"
+                    className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                  />
+                  {pickerSuggestions.length > 0 && (
+                    <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+                      {pickerSuggestions.slice(0, 3).map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            addPending(u.name);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                        >
+                          <Avatar className="h-7 w-7">
+                            <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
+                              {initials(u.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{u.name}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              @{u.name.toLowerCase().replace(/\s+/g, "")}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
+              <p className="text-xs text-muted-foreground">
+                Type @ to search, press Enter to add.
+              </p>
             </Field>
             <Field>
-              <FieldLabel htmlFor="assignee-comment">Komentar (opsional)</FieldLabel>
+              <FieldLabel htmlFor="assignee-comment">Comment <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
               <Textarea
                 id="assignee-comment"
                 value={dialogComment}
                 onChange={(e) => setDialogComment(e.target.value)}
-                placeholder="Tulis komentar untuk assignee baru…"
+                placeholder="Add a note for the new assignees…"
                 rows={3}
                 className="resize-y"
               />
@@ -980,13 +1217,13 @@ export function TaskDetail() {
           </FieldGroup>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssigneeDialogOpen(false)}>
-              Batal
+              Cancel
             </Button>
             <Button
               onClick={submitAssigneeDialog}
               disabled={pendingAssignees.length === 0 && !dialogComment.trim()}
             >
-              Tambah
+              Add
             </Button>
           </DialogFooter>
         </DialogContent>

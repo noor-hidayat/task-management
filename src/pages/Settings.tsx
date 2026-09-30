@@ -1,99 +1,18 @@
-import { useState } from "react";
-import { Plus, Trash2, Edit, Shield, Save, User as UserLucide, Sun, Moon, Monitor } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { CheckCircle2, Moon, Monitor, Shield, Sun, User as UserLucide } from "lucide-react";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { users as mockUsers } from "@/lib/mock";
+import { PageHeader } from "@/components/page-header";
 import { useAuth } from "@/contexts/AuthContext";
-import type { User, UserRole } from "@/types";
+import { isUsernameTaken } from "@/lib/api/profiles";
 import { initials } from "@/lib/format";
-
-function UserFormDialog({
-  open,
-  onClose,
-  onSubmit,
-  initialData,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onSubmit: (data: Partial<User> & { password?: string }) => void;
-  initialData?: User | null;
-}) {
-  const [name, setName] = useState(initialData?.name ?? "");
-  const [username, setUsername] = useState(initialData?.username ?? "");
-  const [role, setRole] = useState<UserRole>(initialData?.role ?? "member");
-  const [password, setPassword] = useState("");
-  const isEditing = !!initialData;
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSubmit({ name, username, role, password: password || undefined });
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
-        <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit User" : "Tambah User"}</DialogTitle>
-          <DialogDescription>{isEditing ? "Ubah data user" : "Buat user baru"}</DialogDescription>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="grid gap-4 py-2">
-          <div className="grid gap-2">
-            <Label htmlFor="su-name">Nama</Label>
-            <Input id="su-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="cth: Operator C" autoFocus disabled={isEditing} />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="su-username">Username</Label>
-            <Input id="su-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} placeholder="cth: operator_c" maxLength={20} />
-          </div>
-          <div className="grid gap-2">
-            <Label>Role</Label>
-            <Select value={role} onValueChange={(v) => setRole(v as UserRole)}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="admin">Admin</SelectItem>
-                <SelectItem value="leader">Leader</SelectItem>
-                <SelectItem value="member">Member</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="su-password">Password {isEditing ? "(kosongkan jika tidak diubah)" : ""}</Label>
-            <Input id="su-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Biarkan kosong untuk tidak mengubah" : "password123"} />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={onClose}>Cancel</Button>
-            <Button onClick={handleSubmit} disabled={!name.trim() || !username.trim() || (!isEditing && !password)}>
-              {isEditing ? <Save className="h-4 w-4 mr-2" /> : <UserLucide className="h-4 w-4 mr-2" />}
-              {isEditing ? "Simpan" : "Tambah"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 const THEME_OPTIONS: { value: Theme; label: string; desc: string; icon: React.ReactNode }[] = [
   { value: "light", label: "Terang", desc: "Selalu terang", icon: <Sun className="h-4 w-4" /> },
@@ -102,86 +21,200 @@ const THEME_OPTIONS: { value: Theme; label: string; desc: string; icon: React.Re
 ];
 
 export function Settings() {
-  const { user: authUser } = useAuth();
+  const { user: authUser, updateUser } = useAuth();
   const { theme, setTheme } = useTheme();
-  const [userList, setUserList] = useState<User[]>(() => {
-    const stored = localStorage.getItem("tm_users");
-    if (stored) {
-      try {
-        return JSON.parse(stored);
-      } catch {
-        return mockUsers;
-      }
+
+  const [name, setName] = useState(authUser?.name ?? "");
+  const [username, setUsername] = useState(authUser?.username ?? "");
+  const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [usernameTaken, setUsernameTaken] = useState(false);
+
+  // Reset form saat login berganti user.
+  useEffect(() => {
+    setName(authUser?.name ?? "");
+    setUsername(authUser?.username ?? "");
+    setPassword("");
+    setConfirm("");
+    setError("");
+    setSaved(false);
+    setUsernameTaken(false);
+  }, [authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Cek ketersediaan username (async).
+  useEffect(() => {
+    if (!authUser) return;
+    const q = username.trim();
+    if (!q || q.toLowerCase() === (authUser.username ?? "").toLowerCase()) {
+      setUsernameTaken(false);
+      return;
     }
-    localStorage.setItem("tm_users", JSON.stringify(mockUsers));
-    return mockUsers;
-  });
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+    let active = true;
+    const t = setTimeout(async () => {
+      const taken = await isUsernameTaken(q, authUser.id);
+      if (active) setUsernameTaken(taken);
+    }, 300);
+    return () => {
+      active = false;
+      clearTimeout(t);
+    };
+  }, [username, authUser]);
 
-  const saveUsers = (next: User[]) => {
-    setUserList(next);
-    localStorage.setItem("tm_users", JSON.stringify(next));
-  };
+  if (!authUser) return null;
+  const isAdmin = authUser.role === "admin";
 
-  const openAddDialog = () => {
-    setEditingUser(null);
-    setDialogOpen(true);
-  };
+  const passwordMismatch = password.length > 0 && confirm !== password;
 
-  const openEditDialog = (u: User) => {
-    setEditingUser(u);
-    setDialogOpen(true);
-  };
+  const valid =
+    name.trim().length > 0 &&
+    username.trim().length > 0 &&
+    !usernameTaken &&
+    !passwordMismatch;
 
-  const handleSubmit = (data: Partial<User> & { password?: string }) => {
-    if (editingUser) {
-      // Edit existing
-      saveUsers(
-        userList.map((u) =>
-          u.id === editingUser.id
-            ? { ...u, ...data, password: data.password ?? u.password }
-            : u
-        )
-      );
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!valid) return;
+    const patch: { name: string; username: string; password?: string } = {
+      name: name.trim(),
+      username: username.trim().toLowerCase(),
+    };
+    if (password) patch.password = password;
+    const next = await updateUser(patch);
+    if (next) {
+      setUsername(next.username ?? "");
+      setPassword("");
+      setConfirm("");
+      setError("");
+      setSaved(true);
     } else {
-      // Add new
-      const newUser: User = {
-        id: `u-${Date.now()}`,
-        username: data.username!,
-        name: data.name!,
-        role: data.role ?? "member",
-        password: data.password ?? "password123",
-      };
-      saveUsers([...userList, newUser]);
-    }
-    setDialogOpen(false);
-  };
-
-  const confirmDelete = (id: string) => {
-    if (id === authUser?.id) return; // Prevent self-delete
-    setDeleteTarget(id);
-  };
-
-  const executeDelete = () => {
-    if (deleteTarget) {
-      saveUsers(userList.filter((u) => u.id !== deleteTarget));
-      setDeleteTarget(null);
+      setError("Gagal menyimpan profil.");
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <p className="text-sm text-muted-foreground">Kelola user dan pengaturan sistem</p>
+      <PageHeader
+        title="Settings"
+        description="Kelola profil dan preferensi tampilan Anda"
+      />
+
+      {saved && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
+          <CheckCircle2 className="h-4 w-4 shrink-0" />
+          Profil berhasil diperbarui.
         </div>
-        <Button onClick={openAddDialog}>
-          <Plus className="h-4 w-4 mr-2" /> Tambah User
-        </Button>
-      </div>
+      )}
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-center gap-3">
+            <Avatar className="h-11 w-11">
+              <AvatarFallback>{initials(authUser.name)}</AvatarFallback>
+            </Avatar>
+            <div>
+              <CardTitle>My Profile</CardTitle>
+              <CardDescription>
+                <Badge
+                  variant={authUser.role === "admin" ? "default" : authUser.role === "Team Leader" || authUser.role === "Foreman" ? "secondary" : "outline"}
+                  className="mt-1 capitalize"
+                >
+                  {authUser.role === "admin" && <Shield className="h-3 w-3 mr-1" />}
+                  {authUser.role}
+                </Badge>
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <form onSubmit={handleSubmit} className="grid gap-4 sm:max-w-md">
+            <div className="grid gap-2">
+              <Label htmlFor="profile-name">Nama</Label>
+              <Input
+                id="profile-name"
+                value={name}
+                onChange={(e) => {
+                  setName(e.target.value);
+                  setSaved(false);
+                }}
+                placeholder="cth: Operator A"
+                autoComplete="name"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="profile-username">Username</Label>
+              <Input
+                id="profile-username"
+                value={username}
+                onChange={(e) => {
+                  setUsername(e.target.value.toLowerCase().replace(/\s+/g, "_"));
+                  setSaved(false);
+                }}
+                placeholder="cth: operator_a"
+                maxLength={20}
+                autoComplete="username"
+              />
+              {usernameTaken && (
+                <p className="text-xs text-destructive">Username sudah dipakai user lain.</p>
+              )}
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="profile-password">Password baru</Label>
+              <Input
+                id="profile-password"
+                type="password"
+                value={password}
+                onChange={(e) => {
+                  setPassword(e.target.value);
+                  setSaved(false);
+                }}
+                placeholder="Kosongkan jika tidak diubah"
+                autoComplete="new-password"
+              />
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor="profile-confirm">Konfirmasi password</Label>
+              <Input
+                id="profile-confirm"
+                type="password"
+                value={confirm}
+                onChange={(e) => {
+                  setConfirm(e.target.value);
+                  setSaved(false);
+                }}
+                placeholder="Ulangi password baru"
+                autoComplete="new-password"
+              />
+              {passwordMismatch && (
+                <p className="text-xs text-destructive">Konfirmasi password tidak cocok.</p>
+              )}
+            </div>
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <div>
+              <Button type="submit" disabled={!valid}>
+                <UserLucide className="h-4 w-4 mr-2" /> Simpan Profil
+              </Button>
+            </div>
+          </form>
+        </CardContent>
+      </Card>
+
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Manajemen User</CardTitle>
+            <CardDescription>Kelola user, role, dan akses — khusus administrator.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button asChild>
+              <Link to="/users">
+                <Shield className="h-4 w-4 mr-2" /> Buka Manajemen User
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -211,86 +244,6 @@ export function Settings() {
           </div>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Manajemen User</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>User</TableHead>
-                <TableHead>Username</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead className="text-right">Aksi</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {userList.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell>
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarFallback className="text-xs">{initials(u.name)}</AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <p className="font-medium">{u.name}</p>
-                        <p className="text-xs text-muted-foreground">{u.id}</p>
-                      </div>
-                    </div>
-                  </TableCell>
-                  <TableCell>
-                    <span className="text-sm text-muted-foreground">@{u.username}</span>
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={u.role === "admin" ? "default" : u.role === "leader" ? "secondary" : "outline"}>
-                      {u.role === "admin" && <Shield className="h-3 w-3 mr-1" />}
-                      {u.role}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex items-center justify-end gap-2">
-                      {u.id !== authUser?.id && (
-                        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditDialog(u)}>
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                      )}
-                      {u.id !== authUser?.id && (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-destructive hover:bg-destructive/10"
-                          onClick={() => confirmDelete(u.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      )}
-                    </div>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <UserFormDialog open={dialogOpen} onClose={() => setDialogOpen(false)} onSubmit={handleSubmit} initialData={editingUser} />
-      </Dialog>
-
-      <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
-        <DialogContent className="max-w-sm">
-          <DialogHeader>
-            <DialogTitle>Hapus User</DialogTitle>
-            <DialogDescription>Yakin ingin menghapus user ini? Tindakan ini tidak bisa dibatalkan.</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Batal</Button>
-            <Button variant="destructive" onClick={executeDelete}>Hapus</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }

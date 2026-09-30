@@ -1,13 +1,12 @@
 import { useLocation } from "react-router-dom";
 import {
-  AudioWaveform,
   BarChart3,
   CircleDot,
   ClipboardList,
-  Command,
   LayoutDashboard,
   ListChecks,
   Settings,
+  ShieldCheck,
   Users,
 } from "lucide-react";
 
@@ -21,22 +20,20 @@ import {
 import { TeamSwitcher } from "@/components/layout/TeamSwitcher";
 import { NavMain } from "@/components/layout/NavMain";
 import { NavSecondary } from "@/components/layout/NavSecondary";
-import { CreateTaskButton } from "@/components/layout/CreateTask";
-
-const teams = [
-  { name: "Production A", logo: Command, plan: "Shift ops" },
-  { name: "Maintenance", logo: AudioWaveform, plan: "Support" },
-];
+import { CreateIssueButton } from "@/components/layout/CreateIssue";
+import { useAuth } from "@/contexts/AuthContext";
 
 export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { pathname } = useLocation();
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
 
   return (
     <Sidebar className="border-r-0" {...props}>
       <SidebarHeader>
-        <TeamSwitcher teams={teams} />
+        <TeamSwitcher />
         <div className="px-0 pt-1">
-          <CreateTaskButton className="w-full" />
+          <CreateIssueButton className="w-full" />
         </div>
         <NavMain
           pathname={pathname}
@@ -67,7 +64,12 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             label="Setting"
             pathname={pathname}
             className="mt-auto"
-            items={[{ title: "Settings", url: "/settings", icon: Settings }]}
+            items={[
+              { title: "Settings", url: "/settings", icon: Settings },
+              ...(isAdmin
+                ? [{ title: "User Management", url: "/users", icon: ShieldCheck }]
+                : []),
+            ]}
           />
         </SidebarContent>
         <SidebarFooter />

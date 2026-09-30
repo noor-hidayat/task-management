@@ -10,8 +10,18 @@ import { Tasks } from "@/pages/Tasks";
 import { TaskDetail } from "@/pages/TaskDetail";
 import { Report } from "@/pages/Report";
 import { Teams } from "@/pages/Teams";
+import { TeamDetail } from "@/pages/TeamDetail";
 import { Settings } from "@/pages/Settings";
+import { Users } from "@/pages/Users";
 import { Login } from "@/pages/Login";
+
+function AdminRoute({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== "admin") {
+    return <Navigate to="/" replace />;
+  }
+  return <>{children}</>;
+}
 
 function ProtectedRoutes() {
   const { user, isLoading } = useAuth();
@@ -43,7 +53,16 @@ function ProtectedRoutes() {
         <Route path="issues" element={<Issues />} />
         <Route path="issues/:number" element={<IssueDetail />} />
         <Route path="teams" element={<Teams />} />
+        <Route path="teams/:id" element={<TeamDetail />} />
         <Route path="settings" element={<Settings />} />
+        <Route
+          path="users"
+          element={
+            <AdminRoute>
+              <Users />
+            </AdminRoute>
+          }
+        />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

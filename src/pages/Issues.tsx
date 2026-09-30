@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
 import { IssueStatusBadge, PriorityBadge } from "@/components/status-badge";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -12,38 +14,31 @@ import {
   DataTableColumnHeader,
 } from "@/components/data-table";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
-import { toDMY, tomorrowISO } from "@/components/task-form-dialog";
-import { currentUser } from "@/lib/mock";
-import { loadIssues, notifyIssuesUpdated, saveIssues } from "@/lib/storage";
+import { toDMY } from "@/components/task-form-dialog";
+import { avatarColor, initials } from "@/lib/format";
+import { useAuth } from "@/contexts/AuthContext";
+import { useIssues, useTeams } from "@/hooks/useSupabaseLists";
+import { createIssue } from "@/lib/api/issues";
+import { listProfiles } from "@/lib/api/profiles";
 import type { Issue, IssueStatus } from "@/types";
 
-function nextNumber(list: Issue[]) {
-  const max = list.reduce((m, i) => {
-    const n = Number(i.number.replace(/\D/g, "")) || 0;
-    return Math.max(m, n);
-  }, 100);
-  return `ISS-${String(max + 1).padStart(6, "0")}`;
-}
-
-function nowLabel() {
-  const d = new Date();
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+/** HTML description -> teks polos satu baris untuk kolom tabel */
+function plainText(html: string): string {
+  return (html ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 export function Issues() {
   const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const { data: list, reload } = useIssues();
+  const { data: teams } = useTeams();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>("all");
   const [open, setOpen] = useState(false);
-  const [list, setList] = useState<Issue[]>(() => loadIssues());
-
-  useEffect(() => {
-    const reload = () => setList(loadIssues());
-    window.addEventListener("tm:issues:updated", reload);
-    return () => window.removeEventListener("tm:issues:updated", reload);
-  }, []);
 
   const filtered = useMemo(
     () =>
@@ -57,34 +52,31 @@ export function Issues() {
     [list, q, status]
   );
 
-  const handleCreate = (v: IssueFormValues) => {
-    const at = nowLabel();
-    const issue: Issue = {
-      id: `iss-${Date.now()}`,
-      number: nextNumber(list),
+  const handleCreate = async (v: IssueFormValues) => {
+    if (!currentUser) return;
+    const profiles = await listProfiles();
+    const assignee = profiles.find((u) => u.name === v.assignedTo);
+    const fallbackTeamId =
+      currentUser.teamId ?? teams.find((t) => t.active)?.id ?? teams[0]?.id ?? "";
+    const reportedTeamId = v.reportedTeamId || fallbackTeamId;
+    const assignedTeamId = v.assignedTeamId || reportedTeamId;
+    const issue = await createIssue({
       title: v.title,
       description: v.description,
-      status: "open",
       priority: v.priority,
-      createdBy: currentUser.name,
-      assignedTo: v.assignedTo,
+      createdById: currentUser.id,
+      assigneeIds: assignee ? [assignee.id] : [],
+      reportedTeamId,
+      assignedTeamId,
       plant: v.plant,
       location: v.location,
-      dueDate: toDMY(v.dueISO) || toDMY(tomorrowISO()),
-      evidences: [],
-      comments: [],
-      createdAt: at,
-      updatedAt: at,
-      activities: [{ id: `a-${Date.now()}`, at, text: "reported issue", actor: currentUser.name }],
-    };
-    const next = [issue, ...list];
-    saveIssues(next);
-    notifyIssuesUpdated();
-    setList(next);
+      dueDate: toDMY(v.dueISO),
+    });
+    reload();
     navigate(`/issues/${issue.number}`);
   };
 
-  // ── Column definitions ─────────────────────────────────────────────
+  // ── Column definitions: ID | Title | Description | Type | Assigned To | Priority | Status | Due Date ──
   const columns: ColumnDef<Issue>[] = useMemo(
     () => [
       {
@@ -93,26 +85,48 @@ export function Issues() {
           <DataTableColumnHeader column={column} title="ID" />
         ),
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.getValue("number")}</span>
+          <span className="font-mono text-xs whitespace-nowrap">{row.getValue("number")}</span>
         ),
       },
       {
         accessorKey: "title",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Issue Title" />
+          <DataTableColumnHeader column={column} title="Title" />
         ),
         cell: ({ row }) => (
-          <div>
-            <Link
-              to={`/issues/${row.original.number}`}
-              className="block max-w-[280px] truncate font-medium hover:underline"
-            >
-              {row.getValue("title")}
-            </Link>
-            <p className="text-xs text-muted-foreground">
-              {row.original.location || row.original.plant || "—"}
-            </p>
-          </div>
+          <Link
+            to={`/issues/${row.original.number}`}
+            title={row.original.title}
+            className="block max-w-[200px] truncate font-medium hover:underline"
+          >
+            {row.getValue("title")}
+          </Link>
+        ),
+      },
+      {
+        accessorKey: "description",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Description" />
+        ),
+        cell: ({ row }) => {
+          const text = plainText(row.original.description ?? "");
+          if (!text) return <span className="text-muted-foreground">—</span>;
+          return (
+            <span title={text} className="block max-w-[240px] truncate text-sm text-muted-foreground">
+              {text}
+            </span>
+          );
+        },
+      },
+      {
+        id: "type",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Type" />
+        ),
+        cell: () => (
+          <Badge variant="outline" className="font-normal">
+            Issue
+          </Badge>
         ),
       },
       {
@@ -120,6 +134,20 @@ export function Issues() {
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Assigned To" />
         ),
+        cell: ({ row }) => {
+          const name = row.getValue("assignedTo") as string;
+          if (!name) return <span className="text-muted-foreground">—</span>;
+          return (
+            <div className="flex items-center gap-2">
+              <Avatar className="h-6 w-6">
+                <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+                  {initials(name)}
+                </AvatarFallback>
+              </Avatar>
+              <span className="max-w-[120px] truncate text-sm">{name}</span>
+            </div>
+          );
+        },
       },
       {
         accessorKey: "priority",
@@ -137,6 +165,15 @@ export function Issues() {
         ),
         cell: ({ row }) => (
           <IssueStatusBadge status={row.getValue("status")} />
+        ),
+      },
+      {
+        accessorKey: "dueDate",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Due Date" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-sm whitespace-nowrap">{row.getValue("dueDate") || "—"}</span>
         ),
       },
     ],

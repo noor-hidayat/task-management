@@ -19,7 +19,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { RichTextEditor, extractChecklist, injectChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
-import { currentUser, users } from "@/lib/mock";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTeams, useUsers } from "@/hooks/useSupabaseLists";
 import type { Priority } from "@/types";
 
 export type TaskChecklistDraft = { id: string; title: string; done: boolean };
@@ -34,11 +35,6 @@ export type TaskFormValues = {
   teamId: string;
   checklist: TaskChecklistDraft[];
 };
-
-const TEAMS = [
-  { name: "Production A", id: "t-prod-a" },
-  { name: "Maintenance", id: "t-maint" },
-];
 
 const MONTH_ABBR = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -76,12 +72,11 @@ function newId() {
   }
 }
 
-const DEFAULTS: TaskFormValues = {
+const DEFAULTS: Omit<TaskFormValues, "assignedTo"> = {
   title: "",
   description: "",
   priority: "medium",
   dueISO: tomorrowISO(),
-  assignedTo: currentUser.name,
   teamId: "t-prod-a",
   checklist: [],
 };
@@ -107,11 +102,14 @@ export function TaskFormDialog({
   showTeam?: boolean;
   onSubmit: (values: TaskFormValues) => void;
 }) {
+  const { data: teams } = useTeams();
+  const { data: users } = useUsers();
+  const { user: currentUser } = useAuth();
   const [title, setTitle] = useState(initial?.title ?? DEFAULTS.title);
   const [description, setDescription] = useState(initial?.description ?? DEFAULTS.description);
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? DEFAULTS.priority);
   const [dueISO, setDueISO] = useState(initial?.dueISO ?? DEFAULTS.dueISO);
-  const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? DEFAULTS.assignedTo);
+  const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? currentUser?.name ?? "");
   const [teamId, setTeamId] = useState(initial?.teamId ?? DEFAULTS.teamId);
 
   // Reset tiap kali dialog dibuka (create kosong / edit terisi data task).
@@ -122,7 +120,7 @@ export function TaskFormDialog({
     setDescription(injectChecklist(initial?.description ?? DEFAULTS.description, initial?.checklist ?? []));
     setPriority(initial?.priority ?? DEFAULTS.priority);
     setDueISO(initial?.dueISO ?? tomorrowISO());
-    setAssignedTo(initial?.assignedTo ?? DEFAULTS.assignedTo);
+    setAssignedTo(initial?.assignedTo ?? currentUser?.name ?? "");
     setTeamId(initial?.teamId ?? DEFAULTS.teamId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
@@ -205,7 +203,7 @@ export function TaskFormDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {TEAMS.map((t) => (
+                    {teams.map((t) => (
                       <SelectItem key={t.id} value={t.id}>
                         {t.name}
                       </SelectItem>

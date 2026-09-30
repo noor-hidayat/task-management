@@ -251,8 +251,9 @@ export function RichTextEditor({
       return;
     }
     const before = node.textContent?.slice(0, sel.anchorOffset) ?? "";
-    const m = before.match(/@([\w ]*)$/);
-    if (m && !m[0].includes("\n")) setMention((prev) => ({ query: m[1], index: prev?.index ?? 0 }));
+    // "@" diikuti kata (boleh multi-kata); spasi ganda/newline menghentikan mention.
+    const m = before.match(/@([\w]+(?:\s[\w]+)*)$/);
+    if (m) setMention((prev) => ({ query: m[1], index: prev?.index ?? 0 }));
     else setMention(null);
   };
 

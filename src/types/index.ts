@@ -9,7 +9,8 @@ export type TaskType = "core" | "adhoc";
 
 export type IssueStatus = "open" | "in_progress" | "on_hold" | "closed";
 
-export type UserRole = "admin" | "leader" | "member";
+/** Nama role — merujuk ke public.roles.name. Bawaan: admin/leader/member. */
+export type UserRole = string;
 
 export interface User {
   id: string;
@@ -52,8 +53,10 @@ export interface Evidence {
   fileSize: string;
   uploadedBy: string;
   uploadedAt: string;
-  /** Isi file (data URL) untuk preview — opsional, hanya file kecil. */
+  /** Isi file (data URL) untuk preview lokal sesaat — opsional. */
   dataUrl?: string;
+  /** ID file di Google Drive (sumber sebenarnya). */
+  driveFileId?: string;
 }
 
 export interface Activity {
@@ -116,6 +119,17 @@ export interface ScheduleRow {
   days: Record<string, string>;
 }
 
+export interface HandoverEntry {
+  id: string;
+  fromTeamId?: string;
+  fromTeam?: string;
+  toTeamId: string;
+  toTeam: string;
+  at: string;
+  actor: string;
+  note?: string;
+}
+
 export interface Issue {
   id: string;
   number: string;
@@ -125,6 +139,16 @@ export interface Issue {
   priority: Priority;
   createdBy: string;
   assignedTo: string;
+  /** Daftar penanggung jawab (multi-user). assignedTo = assignee utama/pertama. */
+  assignees?: string[];
+  /** Tim pelapor asli — tidak berubah saat handover. */
+  reportedTeamId?: string;
+  reportedTeam?: string;
+  /** Tim yang sedang menangani issue — berubah saat handover. */
+  assignedTeamId?: string;
+  assignedTeam?: string;
+  /** Riwayat serah terima antar tim. */
+  handoverHistory?: HandoverEntry[];
   plant: string;
   location: string;
   dueDate: string;
@@ -137,4 +161,28 @@ export interface Issue {
   createdAt: string;
   updatedAt: string;
   activities: Activity[];
+}
+
+export type NotificationType =
+  | "assignment"
+  | "mention"
+  | "progress"
+  | "overdue"
+  | "comment"
+  | "handover";
+
+export interface AppNotification {
+  id: string;
+  type: NotificationType;
+  title: string;
+  message: string;
+  /** Pihak yang memicu notifikasi. */
+  from: string;
+  /** Angka urut waktu (Date.now()) untuk sorting & label relatif. */
+  timestamp: number;
+  read: boolean;
+  /** Tujuan saat diklik, mis. "/tasks/TK-000125". */
+  link: string;
+  /** Nama user yang menjadi target (kosong = untuk semua). */
+  forUser?: string;
 }

@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
   AlignLeft,
+  ArrowRightLeft,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -17,7 +18,9 @@ import {
   Pause,
   Pencil,
   Play,
+  Plus,
   RotateCcw,
+  Search,
   Send,
   Users,
   X,
@@ -61,6 +64,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
+import { dmyToISO, toDMY } from "@/components/task-form-dialog";
+import { RichTextView } from "@/components/rich-text-editor";
+import { avatarColor, initials } from "@/lib/format";
+import { useAuth } from "@/contexts/AuthContext";
+import { useIssues, useTeams, useUsers } from "@/hooks/useSupabaseLists";
 import {
   Select,
   SelectContent,
@@ -68,27 +79,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
-import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
-import { dmyToISO, toDMY } from "@/components/task-form-dialog";
-import { RichTextView } from "@/components/rich-text-editor";
-import { avatarColor, initials } from "@/lib/format";
-import { currentUser, users } from "@/lib/mock";
-import { loadIssues, notifyIssuesUpdated, saveIssues } from "@/lib/storage";
+import { handoverIssue, updateIssue } from "@/lib/api/issues";
+import { addComment } from "@/lib/api/related";
+import { logActivity } from "@/lib/api/works";
+import { listProfiles } from "@/lib/api/profiles";
+import { deleteAttachment, fetchAttachmentObjectUrl, uploadAttachment } from "@/lib/api/attachments";
+import { pushNotification } from "@/lib/api/notifications";
 import type { Comment, Evidence, Issue } from "@/types";
-
-function formatSize(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
-function nowLabel() {
-  const d = new Date();
-  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
 
 type AttachmentItem = {
   id: string;
@@ -96,22 +93,11 @@ type AttachmentItem = {
   meta: string;
   kind: "image" | "file";
   preview?: string;
-  /** URL untuk preview/unduh (object URL file lokal / dataUrl tersimpan). */
+  /** URL untuk preview/unduh (object URL). */
   url?: string;
   mime?: string;
+  driveFileId?: string;
 };
-
-/** Batas isi file yang disimpan ke localStorage agar preview awet (1 MB). */
-const PREVIEW_STORE_LIMIT = 1_000_000;
-
-function readAsDataURL(f: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const r = new FileReader();
-    r.onload = () => resolve(String(r.result));
-    r.onerror = reject;
-    r.readAsDataURL(f);
-  });
-}
 
 function toAttachmentItems(evidences: Evidence[]): AttachmentItem[] {
   return evidences.map((e) => {
@@ -121,33 +107,47 @@ function toAttachmentItems(evidences: Evidence[]): AttachmentItem[] {
       name: e.fileName,
       meta: `${e.fileSize} • ${e.uploadedBy}`,
       kind,
-      preview: kind === "image" ? e.dataUrl : undefined,
-      url: e.dataUrl,
       mime: e.fileType,
+      driveFileId: e.driveFileId,
     };
   });
 }
 
-/** Baris display persis gaya TaskDetail: icon + label + value (bukan input) */
-function DetailRow({
+/** Field vertikal untuk panel Details kanan: label di atas, value di bawah */
+function DetailField({
   icon,
   label,
   children,
-  alignTop,
+  action,
 }: {
   icon: React.ReactNode;
   label: string;
   children: React.ReactNode;
-  alignTop?: boolean;
+  action?: React.ReactNode;
 }) {
   return (
-    <div className={`flex gap-3 ${alignTop ? "items-start" : "items-center"}`}>
-      <span className="h-3.5 w-3.5 shrink-0 text-muted-foreground [&>svg]:h-3.5 [&>svg]:w-3.5 [&>svg]:mt-0.5">
-        {icon}
-      </span>
-      <span className="w-24 shrink-0 text-sm text-muted-foreground">{label}</span>
-      <div className="ml-1 min-w-0 flex-1">{children}</div>
+    <div className="space-y-1">
+      <div className="flex items-center gap-0.5 text-xs text-muted-foreground">
+        <span className="shrink-0 [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
+        <span className="ml-1.5">{label}</span>
+        {action}
+      </div>
+      <div>{children}</div>
     </div>
+  );
+}
+
+function AddButton({ label, onClick }: { label: string; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className="flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+    >
+      <Plus className="h-3.5 w-3.5" />
+    </button>
   );
 }
 
@@ -180,22 +180,19 @@ function SectionTitle({
 
 export function IssueDetail() {
   const { number } = useParams();
-  const [issue, setIssue] = useState<Issue | undefined>(() =>
-    loadIssues().find((i) => i.number === number)
+  const { user: currentUser } = useAuth();
+  const { data: issues, reload } = useIssues();
+  const { data: teams } = useTeams();
+  const { data: users } = useUsers();
+
+  const issue: Issue | undefined = useMemo(
+    () => issues.find((i) => i.number === number),
+    [issues, number]
   );
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
-    setIssue(loadIssues().find((i) => i.number === number));
     setDraft("");
-  }, [number]);
-
-  useEffect(() => {
-    const reload = () => {
-      setIssue(loadIssues().find((i) => i.number === number));
-    };
-    window.addEventListener("tm:issues:updated", reload);
-    return () => window.removeEventListener("tm:issues:updated", reload);
   }, [number]);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -203,13 +200,16 @@ export function IssueDetail() {
   const [closeDraft, setCloseDraft] = useState("");
   const [holdOpen, setHoldOpen] = useState(false);
   const [holdDraft, setHoldDraft] = useState("");
+  const [handoverOpen, setHandoverOpen] = useState(false);
+  const [handoverTeamId, setHandoverTeamId] = useState("");
+  const [handoverNote, setHandoverNote] = useState("");
   const [assigneeOpen, setAssigneeOpen] = useState(false);
-  const [pendingAssignee, setPendingAssignee] = useState("");
+  const [dialogAssignees, setDialogAssignees] = useState<string[]>([]);
+  const [pickerQuery, setPickerQuery] = useState("");
   const [assigneeComment, setAssigneeComment] = useState("");
+  const pickerInputRef = useRef<HTMLInputElement>(null);
 
-  const [attachments, setAttachments] = useState<AttachmentItem[]>(() =>
-    toAttachmentItems(issue?.evidences ?? [])
-  );
+  const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
   useEffect(() => {
     setAttachments(toAttachmentItems(issue?.evidences ?? []));
@@ -217,21 +217,19 @@ export function IssueDetail() {
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const persist = (base: Issue, patch: Partial<Issue>, activity?: string, actor = currentUser.name) => {
-    const at = nowLabel();
-    const next: Issue = {
-      ...base,
-      ...patch,
-      updatedAt: at,
-      activities: activity
-        ? [...base.activities, { id: `a-${Date.now()}`, at, text: activity, actor }]
-        : base.activities,
-    };
-    setIssue(next);
-    saveIssues(loadIssues().map((i) => (i.id === base.id ? next : i)));
-    notifyIssuesUpdated();
-    return next;
-  };
+  const atMatch = pickerQuery.match(/@([\w ]*)$/);
+  const pickerNormalized = atMatch ? atMatch[1].toLowerCase().trim() : null;
+  const pickerSuggestions = useMemo(
+    () =>
+      pickerNormalized === null
+        ? []
+        : users.filter(
+            (u) =>
+              !dialogAssignees.includes(u.name) &&
+              u.name.toLowerCase().includes(pickerNormalized)
+          ),
+    [dialogAssignees, pickerNormalized, users]
+  );
 
   if (!issue) {
     return (
@@ -246,29 +244,25 @@ export function IssueDetail() {
 
   const isClosed = issue.status === "closed";
   const comments: Comment[] = issue.comments ?? [];
+  const actorId = currentUser?.id ?? "";
+  const actorName = currentUser?.name ?? "—";
 
   const openCloseDialog = () => {
     setCloseDraft(issue.resolution ?? "");
     setCloseOpen(true);
   };
 
-  const confirmClose = () => {
+  const confirmClose = async () => {
     const resolution = closeDraft.trim();
     if (!resolution) return;
-    persist(
-      issue,
-      { status: "closed", resolution, closedBy: currentUser.name, closedAt: nowLabel() },
-      "closed issue"
-    );
+    await updateIssue(issue.id, { status: "closed", resolution, closedById: actorId || null });
+    reload();
     setCloseOpen(false);
   };
 
-  const reopen = () => {
-    persist(
-      issue,
-      { status: "open", closedBy: undefined, closedAt: undefined, holdReason: undefined },
-      "reopened issue"
-    );
+  const reopen = async () => {
+    await updateIssue(issue.id, { status: "open", holdReason: "" });
+    reload();
   };
 
   const openHoldDialog = () => {
@@ -276,128 +270,205 @@ export function IssueDetail() {
     setHoldOpen(true);
   };
 
-  const confirmHold = () => {
+  const confirmHold = async () => {
     const reason = holdDraft.trim();
     if (!reason) return;
-    persist(issue, { status: "on_hold", holdReason: reason }, "put on hold");
+    await updateIssue(issue.id, { status: "on_hold", holdReason: reason });
+    reload();
     setHoldOpen(false);
   };
 
-  const resumeIssue = () => {
-    persist(issue, { status: "in_progress" }, "resumed issue");
+  const resumeIssue = async () => {
+    await updateIssue(issue.id, { status: "in_progress" });
+    reload();
   };
 
-  const startIssue = () => {
-    persist(issue, { status: "in_progress" }, "status changed from Open to In Progress");
+  const startIssue = async () => {
+    await updateIssue(issue.id, { status: "in_progress" });
+    reload();
   };
 
-  const submitEdit = (v: IssueFormValues) => {
-    const activity =
-      v.assignedTo !== issue.assignedTo
-        ? `assignment changed from ${issue.assignedTo} to ${v.assignedTo}`
-        : undefined;
-    const { dueISO, ...rest } = v;
-    persist(issue, { ...rest, dueDate: toDMY(dueISO) || issue.dueDate }, activity);
+  const assignees: string[] =
+    Array.isArray(issue.assignees) && issue.assignees.length > 0
+      ? issue.assignees
+      : issue.assignedTo
+        ? [issue.assignedTo]
+        : [];
+
+  const addAssignee = (name: string) => {
+    const clean = name.replace(/^@/, "").trim();
+    if (!clean) return;
+    const found =
+      users.find((u) => u.name.toLowerCase() === clean.toLowerCase()) ??
+      users.find((u) => u.name.toLowerCase().includes(clean.toLowerCase()));
+    const toAdd = found?.name ?? clean;
+    if (dialogAssignees.includes(toAdd)) {
+      setPickerQuery("");
+      return;
+    }
+    setDialogAssignees((prev) => [...prev, toAdd]);
+    setPickerQuery("");
+    pickerInputRef.current?.focus();
+  };
+  const removeAssignee = (name: string) =>
+    setDialogAssignees((prev) => prev.filter((a) => a !== name));
+  const openAssigneeDialog = () => {
+    setDialogAssignees(assignees);
+    setPickerQuery("");
+    setAssigneeComment("");
+    setAssigneeOpen(true);
   };
 
-  const submitAssignee = () => {
-    if (!pendingAssignee) return;
-    let next = issue;
-    if (pendingAssignee !== issue.assignedTo) {
-      next = persist(
-        next,
-        { assignedTo: pendingAssignee },
-        `assignment changed from ${issue.assignedTo} to ${pendingAssignee}`
-      );
+  const submitEdit = async (v: IssueFormValues) => {
+    const profiles = await listProfiles();
+    const assigneeId = profiles.find((u) => u.name === v.assignedTo)?.id;
+    const patch: Parameters<typeof updateIssue>[1] = {
+      title: v.title,
+      description: v.description,
+      priority: v.priority,
+      dueDate: toDMY(v.dueISO) || issue.dueDate,
+      plant: v.plant,
+      location: v.location,
+      assigneeIds: assigneeId ? [assigneeId] : [],
+    };
+    if (v.assignedTeamId && v.assignedTeamId !== issue.assignedTeamId) {
+      patch.assignedTeamId = v.assignedTeamId;
+    }
+    await updateIssue(issue.id, patch);
+    reload();
+  };
+
+  const openHandoverDialog = () => {
+    setHandoverTeamId("");
+    setHandoverNote("");
+    setHandoverOpen(true);
+  };
+
+  const confirmHandover = async () => {
+    if (!handoverTeamId || handoverTeamId === issue.assignedTeamId) return;
+    const toName = teams.find((t) => t.id === handoverTeamId)?.name ?? handoverTeamId;
+    await handoverIssue(
+      issue.id,
+      handoverTeamId,
+      toName,
+      actorId,
+      actorName,
+      issue.assignedTeamId ?? null,
+      issue.assignedTeam ?? null
+    );
+    if (handoverNote.trim()) {
+      await addComment("issue", issue.id, actorId, handoverNote.trim());
+    }
+    await pushNotification({
+      type: "handover",
+      title: "Issue diserahkan ke tim Anda",
+      message: `${issue.number} · ${issue.title}`,
+      fromId: actorId,
+      forUserId: null,
+      link: `/issues/${issue.number}`,
+    });
+    reload();
+    setHandoverOpen(false);
+    setHandoverTeamId("");
+    setHandoverNote("");
+  };
+
+  const submitAssignee = async () => {
+    const added = dialogAssignees.filter((a) => !assignees.includes(a));
+    const removed = assignees.filter((a) => !dialogAssignees.includes(a));
+    const changed = added.length > 0 || removed.length > 0;
+    if (changed) {
+      const ids = dialogAssignees
+        .map((name) => users.find((u) => u.name === name)?.id)
+        .filter((v): v is string => Boolean(v));
+      await updateIssue(issue.id, { assigneeIds: ids });
+      const parts: string[] = [];
+      if (added.length > 0) parts.push(`assigned ${added.join(", ")}`);
+      if (removed.length > 0) parts.push(`unassigned ${removed.join(", ")}`);
+      if (parts.length > 0) {
+        await logActivity("issue", issue.id, parts.join("; "), actorId);
+      }
     }
     if (assigneeComment.trim()) {
-      const at = nowLabel();
-      next = persist(next, {
-        comments: [
-          ...comments,
-          { id: `c-${Date.now()}`, author: currentUser.name, time: at, text: assigneeComment.trim() },
-        ],
-      });
+      await addComment("issue", issue.id, actorId, assigneeComment.trim());
     }
-    setPendingAssignee("");
+    reload();
+    setDialogAssignees([]);
+    setPickerQuery("");
     setAssigneeComment("");
     setAssigneeOpen(false);
   };
 
   const onPickFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const at = nowLabel();
-    const items: AttachmentItem[] = [];
-    const evidences: Evidence[] = [];
+    const uploaded: AttachmentItem[] = [];
     for (const [idx, f] of Array.from(files).entries()) {
-      const id = `local-${Date.now()}-${idx}`;
-      const isImage = f.type.startsWith("image/");
-      const url = URL.createObjectURL(f);
-      // Simpan isi file kecil agar preview tetap ada setelah reload
-      let dataUrl: string | undefined;
-      try {
-        if (f.size <= PREVIEW_STORE_LIMIT) dataUrl = await readAsDataURL(f);
-      } catch {}
-      items.push({
-        id,
-        name: f.name,
-        meta: `${formatSize(f.size)} • ${currentUser.name}`,
-        kind: isImage ? "image" : "file",
-        preview: isImage ? url : undefined,
-        url: dataUrl ?? url,
-        mime: f.type,
-      });
-      evidences.push({
-        id,
-        fileName: f.name,
-        fileType: f.type || "file",
-        fileSize: formatSize(f.size),
-        uploadedBy: currentUser.name,
-        uploadedAt: at,
-        dataUrl,
+      const res = await uploadAttachment("issue", issue.id, issue.number, f);
+      uploaded.push({
+        id: `${res.attachmentId}-${idx}`,
+        name: res.fileName,
+        meta: `${res.fileSize} • ${currentUser?.name ?? "—"}`,
+        kind: f.type.startsWith("image/") ? "image" : "file",
+        mime: res.fileType,
+        driveFileId: res.driveFileId,
       });
     }
-    setAttachments((prev) => [...prev, ...items]);
-    persist(
-      issue,
-      { evidences: [...issue.evidences, ...evidences] },
-      items.length === 1
-        ? `added attachment (${items[0].name})`
-        : `added ${items.length} attachments`
-    );
+    setAttachments((prev) => [...prev, ...uploaded]);
+    if (uploaded.length > 0) {
+      await logActivity(
+        "issue",
+        issue.id,
+        uploaded.length === 1
+          ? `added attachment (${uploaded[0].name})`
+          : `added ${uploaded.length} attachments`,
+        actorId
+      );
+    }
+    reload();
   };
 
-  const downloadItem = (a: AttachmentItem) => {
-    if (!a.url) return;
+  const downloadItem = async (a: AttachmentItem) => {
+    const url = a.url ?? (a.driveFileId ? await fetchAttachmentObjectUrl(a.driveFileId) : null);
+    if (!url) return;
     const el = document.createElement("a");
-    el.href = a.url;
+    el.href = url;
     el.download = a.name;
     el.click();
   };
 
-  const removeAttachment = (id: string) => {
+  const removeAttachment = async (id: string) => {
     const target = attachments.find((a) => a.id === id);
     if (target?.preview) URL.revokeObjectURL(target.preview);
     if (target?.url && target.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
+    if (target?.driveFileId) {
+      await deleteAttachment(target.id, target.driveFileId);
+    }
     setAttachments((prev) => prev.filter((a) => a.id !== id));
-    persist(
-      issue,
-      { evidences: issue.evidences.filter((e) => e.id !== id) },
-      target ? `removed attachment (${target.name})` : undefined
-    );
+    if (target) {
+      await logActivity("issue", issue.id, `removed attachment (${target.name})`, actorId);
+    }
+    reload();
   };
 
-  const postComment = () => {
+  const openPreview = async (a: AttachmentItem) => {
+    if (!a.url && a.driveFileId) {
+      const url = await fetchAttachmentObjectUrl(a.driveFileId);
+      if (url) {
+        const next = { ...a, url, preview: a.kind === "image" ? url : undefined };
+        setAttachments((prev) => prev.map((x) => (x.id === a.id ? next : x)));
+        setPreviewItem(next);
+        return;
+      }
+    }
+    setPreviewItem(a);
+  };
+
+  const postComment = async () => {
     const clean = draft.trim();
     if (!clean) return;
-    const at = nowLabel();
-    persist(issue, {
-      comments: [
-        ...comments,
-        { id: `c-${Date.now()}`, author: currentUser.name, time: at, text: clean },
-      ],
-    });
+    await addComment("issue", issue.id, actorId, clean);
     setDraft("");
+    reload();
   };
 
   return (
@@ -424,17 +495,17 @@ export function IssueDetail() {
         </Breadcrumb>
       </div>
 
-      {/* ===== Main scroll | Comments panel fixed ===== */}
+      {/* ===== Main scroll | Details panel kanan ===== */}
       <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-0">
         <main className="min-w-0 flex-1 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-6">
           <section className="space-y-4">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-row items-start justify-between gap-3">
               <div className="flex min-w-0 items-center gap-2">
-                <h3 className="truncate text-lg font-bold leading-none tracking-tight">
+                <h3 className="truncate text-xl font-bold leading-tight tracking-tight">
                   {issue.title || "Untitled issue"}
                 </h3>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex shrink-0 items-center gap-2">
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -451,6 +522,9 @@ export function IssueDetail() {
                         <DropdownMenuItem onClick={() => setEditOpen(true)}>
                           <Pencil className="h-4 w-4" /> Edit Issue
                         </DropdownMenuItem>
+                        <DropdownMenuItem onClick={openHandoverDialog}>
+                          <ArrowRightLeft className="h-4 w-4" /> Handover to team
+                        </DropdownMenuItem>
                         {issue.status === "open" ? (
                           <DropdownMenuItem onClick={startIssue}>
                             <Play className="h-4 w-4" /> Start Issue
@@ -459,27 +533,17 @@ export function IssueDetail() {
                           <DropdownMenuItem onClick={resumeIssue}>
                             <Play className="h-4 w-4" /> Resume Issue
                           </DropdownMenuItem>
-                        ) : issue.holdReason ? (
-                          <DropdownMenuItem onClick={openCloseDialog}>
-                            <CheckCircle2 className="h-4 w-4" /> Close Issue
-                          </DropdownMenuItem>
                         ) : (
-                          <DropdownMenuItem onClick={openHoldDialog}>
-                            <Pause className="h-4 w-4" /> On Hold
-                          </DropdownMenuItem>
+                          <>
+                            <DropdownMenuItem onClick={openHoldDialog}>
+                              <Pause className="h-4 w-4" /> On Hold
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={openCloseDialog}>
+                              <CheckCircle2 className="h-4 w-4" /> Completed
+                            </DropdownMenuItem>
+                          </>
                         )}
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setPendingAssignee(issue.assignedTo);
-                            setAssigneeComment("");
-                            setAssigneeOpen(true);
-                          }}
-                        >
-                          <Users className="h-4 w-4" /> Assigned To
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => fileInputRef.current?.click()}>
-                          <Paperclip className="h-4 w-4" /> Add Attachment
-                        </DropdownMenuItem>
+
                       </>
                     )}
                   </DropdownMenuContent>
@@ -488,112 +552,12 @@ export function IssueDetail() {
             </div>
           </section>
 
-          {/* Status | Priority | Plant | Location | Assigned To — display rows */}
-          <div className="space-y-1.5">
-            <DetailRow icon={<CircleDot />} label="Status">
-              <span className="flex flex-wrap items-center gap-2">
-                <IssueStatusBadge status={issue.status} />
-              </span>
-            </DetailRow>
-            {issue.status === "on_hold" && issue.holdReason && (
-              <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950">
-                <p className="text-xs font-medium text-amber-800 dark:text-amber-200">On Hold Reason</p>
-                <p className="mt-0.5 text-sm">{issue.holdReason}</p>
-              </div>
-            )}
-            <DetailRow icon={<Flag />} label="Priority">
-              <PriorityBadge priority={issue.priority} />
-            </DetailRow>
-            <DetailRow icon={<CalendarDays />} label="Due Date">
-              <span className="text-sm">{issue.dueDate || "—"}</span>
-            </DetailRow>
-            <DetailRow icon={<Factory />} label="Plant">
-              <span className="text-sm">{issue.plant || "—"}</span>
-            </DetailRow>
-            <DetailRow icon={<MapPin />} label="Location">
-              <span className="text-sm">{issue.location || "—"}</span>
-            </DetailRow>
-            <DetailRow icon={<Users />} label="Assigned To">
-              <span className="flex items-center gap-2">
-                {issue.assignedTo ? (
-                  <Avatar className="h-6 w-6 cursor-default border-2 border-background" title={issue.assignedTo}>
-                    <AvatarFallback className={`text-[10px] ${avatarColor(issue.assignedTo)}`}>
-                      {initials(issue.assignedTo)}
-                    </AvatarFallback>
-                  </Avatar>
-                ) : (
-                  <span className="text-sm text-muted-foreground">—</span>
-                )}
-              </span>
-            </DetailRow>
-          </div>
 
-          {/* Attachments — satu section untuk seluruh lifecycle issue */}
-          <DetailRow icon={<Paperclip />} label="Attachments" alignTop>
-            <div className="space-y-2">
-              <input
-                ref={fileInputRef}
-                type="file"
-                multiple
-                className="hidden"
-                onChange={(e) => {
-                  onPickFiles(e.target.files);
-                  e.target.value = "";
-                }}
-              />
-              {attachments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
-              ) : (
-                <AttachmentGroup>
-                  {attachments.map((a) =>
-                    a.preview ? (
-                      <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
-                        <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
-                        <AttachmentMedia variant="image">
-                          <img src={a.preview} alt={a.name} className="h-full w-full object-cover" />
-                        </AttachmentMedia>
-                        <AttachmentContent>
-                          <AttachmentTitle>{a.name}</AttachmentTitle>
-                          <AttachmentDescription>{a.meta}</AttachmentDescription>
-                        </AttachmentContent>
-                        <AttachmentActions>
-                          <AttachmentAction aria-label={`Remove ${a.name}`} onClick={() => removeAttachment(a.id)}>
-                            <X />
-                          </AttachmentAction>
-                        </AttachmentActions>
-                      </Attachment>
-                    ) : (
-                      <Attachment key={a.id} size="sm" className="w-56 cursor-pointer" title="Preview">
-                        <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
-                        <AttachmentMedia>
-                          {a.kind === "image" ? <ImageIcon /> : <FileText />}
-                        </AttachmentMedia>
-                        <AttachmentContent>
-                          <AttachmentTitle>{a.name}</AttachmentTitle>
-                          <AttachmentDescription>{a.meta}</AttachmentDescription>
-                        </AttachmentContent>
-                        <AttachmentActions>
-                          {a.url && (
-                            <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
-                              <Download />
-                            </AttachmentAction>
-                          )}
-                          <AttachmentAction aria-label={`Remove ${a.name}`} onClick={() => removeAttachment(a.id)}>
-                            <X />
-                          </AttachmentAction>
-                        </AttachmentActions>
-                      </Attachment>
-                    )
-                  )}
-                </AttachmentGroup>
-              )}
-            </div>
-          </DetailRow>
 
           {/* Description — label di atas, konten full-width */}
           <section className="space-y-2">
             <SectionTitle icon={<AlignLeft />} title="Description" />
-            <div className="rounded-lg border bg-muted/30 px-3 py-2">
+            <div className="rounded-lg border bg-muted/30 px-3 py-2 min-h-[9lh]">
               <RichTextView html={issue.description} />
             </div>
           </section>
@@ -612,63 +576,9 @@ export function IssueDetail() {
           )}
           <div className="border-t" />
 
-          {/* Activity — ikut scroll di Main Content */}
+          {/* Comments — di bawah description, di atas activity */}
           <section className="space-y-4">
-            <SectionTitle title="Activity" icon={<CircleDot />} count={issue.activities.length} />
-            {issue.activities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
-            ) : (
-              <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
-                {issue.activities.map((a) => (
-                  <li key={a.id} className="relative">
-                    <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
-                    <div className="flex items-center gap-2">
-                      <Avatar className="h-5 w-5">
-                        <AvatarFallback className={`text-[8px] ${avatarColor(a.actor)}`}>
-                          {initials(a.actor)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="text-xs font-medium">{a.actor}</span>
-                    </div>
-                    <p className="mt-1 text-sm">{a.text}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">{a.at}</p>
-                  </li>
-                ))}
-              </ol>
-            )}
-          </section>
-        </main>
-
-        {/* Comments panel kanan — fixed, hanya list yang scroll */}
-        <aside className="flex min-h-0 flex-col gap-4 lg:w-[360px] lg:shrink-0 lg:border-l lg:pl-6">
-          <div className="shrink-0">
             <SectionTitle title="Comments" icon={<AlignLeft />} count={comments.length} />
-          </div>
-          <div className="max-h-96 min-h-0 flex-1 overflow-y-auto pr-1 lg:max-h-none">
-            {comments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
-            ) : (
-              <ul className="space-y-4">
-                {comments.map((c) => (
-                  <li key={c.id} className="flex gap-2.5">
-                    <Avatar className="h-7 w-7 shrink-0">
-                      <AvatarFallback className={`text-[10px] ${avatarColor(c.author)}`}>
-                        {initials(c.author)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="min-w-0 flex-1 rounded-lg bg-muted/50 px-3 py-2">
-                      <div className="flex flex-wrap items-baseline gap-x-2">
-                        <span className="text-xs font-medium">{c.author}</span>
-                        <span className="text-xs text-muted-foreground">{c.time ?? c.at}</span>
-                      </div>
-                      <p className="mt-0.5 text-sm whitespace-pre-wrap">{c.text}</p>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <div className="shrink-0">
             <div className="flex items-center gap-2 rounded-xl border bg-background p-2 focus-within:ring-1 focus-within:ring-ring">
               <Textarea
                 id="issue-comment"
@@ -701,6 +611,217 @@ export function IssueDetail() {
                 <Send className="h-4 w-4" />
               </Button>
             </div>
+            {comments.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
+            ) : (
+              <ul className="space-y-4">
+                {comments.map((c) => (
+                  <li key={c.id} className="flex gap-2.5">
+                    <Avatar className="h-7 w-7 shrink-0">
+                      <AvatarFallback className={`text-[10px] ${avatarColor(c.author)}`}>
+                        {initials(c.author)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1 rounded-lg bg-muted/50 px-3 py-2">
+                      <div className="flex flex-wrap items-baseline gap-x-2">
+                        <span className="text-xs font-medium">{c.author}</span>
+                        <span className="text-xs text-muted-foreground">{c.time ?? c.at}</span>
+                      </div>
+                      <p className="mt-0.5 text-sm whitespace-pre-wrap">{c.text}</p>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+          <div className="border-t" />
+
+          {/* Activity — ikut scroll di Main Content */}
+          <section className="space-y-4">
+            <SectionTitle title="Activity" icon={<CircleDot />} count={issue.activities.length} />
+            {issue.activities.length === 0 ? (
+              <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
+            ) : (
+              <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
+                {issue.activities.map((a) => (
+                  <li key={a.id} className="relative">
+                    <span className="absolute top-1.5 -left-[21px] h-2 w-2 rounded-full bg-primary ring-4 ring-background" />
+                    <div className="flex items-center gap-2">
+                      <Avatar className="h-5 w-5">
+                        <AvatarFallback className={`text-[8px] ${avatarColor(a.actor)}`}>
+                          {initials(a.actor)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="text-xs font-medium">{a.actor}</span>
+                    </div>
+                    <p className="mt-1 text-sm">{a.text}</p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">{a.at}</p>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </section>
+        </main>
+
+        {/* Details panel kanan — Status | Priority | Due Date | Plant | Location | Assigned To */}
+        <aside className="min-w-0 lg:w-[320px] lg:shrink-0 lg:border-l lg:pl-6">
+          <div className="space-y-4 lg:sticky lg:top-0">
+            <div className="space-y-4">
+              <DetailField
+                icon={<Users />}
+                label="Assignees"
+                action={<AddButton label="Add assignees" onClick={openAssigneeDialog} />}
+              >
+                {assignees.length > 0 ? (
+                  <span className="flex items-center -space-x-2">
+                    {assignees.map((name) => (
+                      <Avatar
+                        key={name}
+                        title={name}
+                        className="h-6 w-6 cursor-default border-2 border-background"
+                      >
+                        <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+                          {initials(name)}
+                        </AvatarFallback>
+                      </Avatar>
+                    ))}
+                  </span>
+                ) : (
+                  <span className="text-sm text-muted-foreground">—</span>
+                )}
+              </DetailField>
+              <DetailField
+                icon={<ArrowRightLeft />}
+                label="Teams"
+                action={<AddButton label="Handover to team" onClick={openHandoverDialog} />}
+              >
+                <div className="space-y-1.5 text-sm">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Reported by</span>
+                    <Badge variant="outline" className="font-normal">{issue.reportedTeam ?? "—"}</Badge>
+                  </div>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground">Assigned to</span>
+                    <Badge variant="secondary" className="font-normal">{issue.assignedTeam ?? "—"}</Badge>
+                  </div>
+                  {(issue.handoverHistory ?? []).length > 0 && (
+                    <div className="rounded-lg border bg-muted/30 px-2.5 py-2">
+                      <p className="mb-1.5 text-[11px] font-medium tracking-widest text-muted-foreground">HANDOVER</p>
+                      <ol className="space-y-1.5">
+                        {(issue.handoverHistory ?? []).map((h, idx) => (
+                          <li key={h.id} className="text-xs">
+                            <div className="flex items-center gap-1.5">
+                              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px] tabular-nums">{idx + 1}</span>
+                              <span className="font-medium">{h.toTeam}</span>
+                            </div>
+                            <p className="mt-0.5 pl-6 text-muted-foreground">{h.at} · {h.actor}</p>
+                            {idx < (issue.handoverHistory ?? []).length - 1 && (
+                              <p className="pl-6 text-muted-foreground">↓</p>
+                            )}
+                          </li>
+                        ))}
+                        {isClosed && (
+                          <li className="text-xs">
+                            <p className="pl-6 text-muted-foreground">↓</p>
+                            <div className="flex items-center gap-1.5">
+                              <span className="flex h-4 w-4 items-center justify-center rounded-full bg-muted text-[10px]">✓</span>
+                              <span className="font-medium">Closed</span>
+                            </div>
+                          </li>
+                        )}
+                      </ol>
+                    </div>
+                  )}
+                </div>
+              </DetailField>
+              <DetailField icon={<CircleDot />} label="Status">
+                <IssueStatusBadge status={issue.status} />
+              </DetailField>
+              {issue.status === "on_hold" && issue.holdReason && (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950">
+                  <p className="text-xs font-medium text-amber-800 dark:text-amber-200">On Hold Reason</p>
+                  <p className="mt-0.5 text-sm">{issue.holdReason}</p>
+                </div>
+              )}
+              <DetailField icon={<Flag />} label="Priority">
+                <PriorityBadge priority={issue.priority} />
+              </DetailField>
+              <DetailField icon={<Factory />} label="Plant">
+                <span className="text-sm">{issue.plant || "—"}</span>
+              </DetailField>
+              <DetailField icon={<MapPin />} label="Location">
+                <span className="text-sm">{issue.location || "—"}</span>
+              </DetailField>
+              <DetailField icon={<CalendarDays />} label="Due Date">
+                <span className="text-sm">{issue.dueDate || "—"}</span>
+              </DetailField>
+              <DetailField
+                icon={<Paperclip />}
+                label="Attachment"
+                action={
+                  <AddButton label="Add attachment" onClick={() => fileInputRef.current?.click()} />
+                }
+              >
+                <div className="space-y-2">
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      onPickFiles(e.target.files);
+                      e.target.value = "";
+                    }}
+                  />
+                  {attachments.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
+                  ) : (
+                    <AttachmentGroup>
+                      {attachments.map((a) =>
+                        a.preview ? (
+                          <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
+                            <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => openPreview(a)} />
+                            <AttachmentMedia variant="image">
+                              <img src={a.preview} alt={a.name} className="h-full w-full object-cover" />
+                            </AttachmentMedia>
+                            <AttachmentContent>
+                              <AttachmentTitle>{a.name}</AttachmentTitle>
+                              <AttachmentDescription>{a.meta}</AttachmentDescription>
+                            </AttachmentContent>
+                            <AttachmentActions>
+                              <AttachmentAction aria-label={`Remove ${a.name}`} onClick={() => removeAttachment(a.id)}>
+                                <X />
+                              </AttachmentAction>
+                            </AttachmentActions>
+                          </Attachment>
+                        ) : (
+                          <Attachment key={a.id} size="sm" className="w-full cursor-pointer" title="Preview">
+                            <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => openPreview(a)} />
+                            <AttachmentMedia>
+                              {a.kind === "image" ? <ImageIcon /> : <FileText />}
+                            </AttachmentMedia>
+                            <AttachmentContent>
+                              <AttachmentTitle>{a.name}</AttachmentTitle>
+                              <AttachmentDescription>{a.meta}</AttachmentDescription>
+                            </AttachmentContent>
+                            <AttachmentActions>
+                              {(a.url || a.driveFileId) && (
+                                <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
+                                  <Download />
+                                </AttachmentAction>
+                              )}
+                              <AttachmentAction aria-label={`Remove ${a.name}`} onClick={() => removeAttachment(a.id)}>
+                                <X />
+                              </AttachmentAction>
+                            </AttachmentActions>
+                          </Attachment>
+                        )
+                      )}
+                    </AttachmentGroup>
+                  )}
+                </div>
+              </DetailField>
+            </div>
           </div>
         </aside>
       </div>
@@ -717,12 +838,64 @@ export function IssueDetail() {
           description: issue.description,
           priority: issue.priority,
           assignedTo: issue.assignedTo,
+          reportedTeamId: issue.reportedTeamId,
+          assignedTeamId: issue.assignedTeamId,
           plant: issue.plant,
           location: issue.location,
           dueISO: dmyToISO(issue.dueDate),
         }}
         onSubmit={submitEdit}
       />
+
+      {/* Handover to team — preserves reported team + history */}
+      <Dialog open={handoverOpen} onOpenChange={setHandoverOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Handover to team</DialogTitle>
+            <DialogDescription>
+              Serahkan #{issue.number} ke tim lain. Tim pelapor ({issue.reportedTeam ?? "—"}) tetap dipertahankan.
+            </DialogDescription>
+          </DialogHeader>
+          <FieldGroup>
+            <Field>
+              <FieldLabel>From</FieldLabel>
+              <Input value={issue.assignedTeam ?? issue.assignedTeamId ?? "—"} disabled />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="handover-team">To team</FieldLabel>
+              <Select value={handoverTeamId} onValueChange={setHandoverTeamId}>
+                <SelectTrigger id="handover-team"><SelectValue placeholder="Pilih tim tujuan" /></SelectTrigger>
+                <SelectContent>
+                  {teams
+                    .filter((t) => t.id !== issue.assignedTeamId)
+                    .map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="handover-note">Note <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
+              <Textarea
+                id="handover-note"
+                value={handoverNote}
+                onChange={(e) => setHandoverNote(e.target.value)}
+                placeholder="cth: Butuh verifikasi data transaksi oleh IT…"
+                rows={3}
+                className="resize-y"
+              />
+            </Field>
+          </FieldGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setHandoverOpen(false)}>
+              Batal
+            </Button>
+            <Button onClick={confirmHandover} disabled={!handoverTeamId}>
+              Handover
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Close Issue — wajib isi resolution */}
       <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
@@ -795,34 +968,120 @@ export function IssueDetail() {
       {/* Preview attachment */}
       <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
 
-      {/* Ubah assignee */}
+      {/* Manage assignees (multi-user) */}
       <Dialog open={assigneeOpen} onOpenChange={setAssigneeOpen}>
-        <DialogContent className="max-w-md">
+        <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Ubah assignee</DialogTitle>
-            <DialogDescription>
-              Pilih user penanggung jawab, tulis komentar sekalian jika perlu.
-            </DialogDescription>
+            <DialogTitle>Manage assignees</DialogTitle>
           </DialogHeader>
           <FieldGroup>
             <Field>
-              <FieldLabel>User</FieldLabel>
-              <Select value={pendingAssignee} onValueChange={setPendingAssignee}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {users.map((u) => (
-                    <SelectItem key={u.id} value={u.name}>{u.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <FieldLabel htmlFor="assignee-picker">
+                Assignees
+                {dialogAssignees.length > 0 && (
+                  <span className="ml-1.5 font-normal text-muted-foreground">
+                    {dialogAssignees.length}
+                  </span>
+                )}
+              </FieldLabel>
+              <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+                {dialogAssignees.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+                    {dialogAssignees.map((name) => (
+                      <Badge
+                        key={name}
+                        variant="secondary"
+                        className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal"
+                      >
+                        <Avatar className="h-4 w-4">
+                          <AvatarFallback className={`text-[8px] ${avatarColor(name)}`}>
+                            {initials(name)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="max-w-32 truncate">{name}</span>
+                        <button
+                          type="button"
+                          aria-label={`Remove ${name}`}
+                          onClick={() => removeAssignee(name)}
+                          className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </Badge>
+                    ))}
+                  </div>
+                )}
+                <div className="relative">
+                  <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    ref={pickerInputRef}
+                    id="assignee-picker"
+                    value={pickerQuery}
+                    onChange={(e) => setPickerQuery(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+                        e.preventDefault();
+                        if (pickerSuggestions.length > 0) {
+                          addAssignee(pickerSuggestions[0].name);
+                        } else if (pickerQuery.trim()) {
+                          addAssignee(pickerQuery);
+                        }
+                      } else if (
+                        e.key === "Backspace" &&
+                        pickerQuery === "" &&
+                        dialogAssignees.length > 0
+                      ) {
+                        removeAssignee(dialogAssignees[dialogAssignees.length - 1]);
+                      }
+                    }}
+                    placeholder={
+                      dialogAssignees.length > 0
+                        ? "Search to add more people…"
+                        : "Search people by name…"
+                    }
+                    autoComplete="off"
+                    className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                  />
+                  {pickerSuggestions.length > 0 && (
+                    <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+                      {pickerSuggestions.slice(0, 3).map((u) => (
+                        <button
+                          key={u.id}
+                          type="button"
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            addAssignee(u.name);
+                          }}
+                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                        >
+                          <Avatar className="h-7 w-7">
+                            <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
+                              {initials(u.name)}
+                            </AvatarFallback>
+                          </Avatar>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate font-medium">{u.name}</span>
+                            <span className="block truncate text-xs text-muted-foreground">
+                              @{u.name.toLowerCase().replace(/\s+/g, "")}
+                            </span>
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Type @ to search, press Enter to add.
+              </p>
             </Field>
             <Field>
-              <FieldLabel htmlFor="issue-assignee-comment">Komentar (opsional)</FieldLabel>
+              <FieldLabel htmlFor="issue-assignee-comment">Comment <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>
               <Textarea
                 id="issue-assignee-comment"
                 value={assigneeComment}
                 onChange={(e) => setAssigneeComment(e.target.value)}
-                placeholder="Tulis komentar untuk assignee baru…"
+                placeholder="Add a note for the new assignees…"
                 rows={3}
                 className="resize-y"
               />
@@ -830,10 +1089,10 @@ export function IssueDetail() {
           </FieldGroup>
           <DialogFooter>
             <Button variant="outline" onClick={() => setAssigneeOpen(false)}>
-              Batal
+              Cancel
             </Button>
-            <Button onClick={submitAssignee} disabled={!pendingAssignee}>
-              Simpan
+            <Button onClick={submitAssignee}>
+              Save changes
             </Button>
           </DialogFooter>
         </DialogContent>

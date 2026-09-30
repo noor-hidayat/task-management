@@ -17,12 +17,11 @@ import {
   DataTable,
   DataTableColumnHeader,
 } from "@/components/data-table";
-import { IssueStatusBadge, StatusBadge } from "@/components/status-badge";
+import { IssueStatusBadge, PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { useAuth } from "@/contexts/AuthContext";
 import { avatarColor, initials } from "@/lib/format";
-import { users as mockUsers } from "@/lib/mock";
-import { loadIssues, loadWorks } from "@/lib/storage";
-import type { IssueStatus, User, WorkStatus } from "@/types";
+import { useIssues, useUsers, useWorks } from "@/hooks/useSupabaseLists";
+import type { Issue, IssueStatus, Priority, User, WorkItem, WorkStatus } from "@/types";
 
 type WorkKind = "task" | "issue";
 type WorkColumn = "open" | "in_progress" | "on_hold" | "completed";
@@ -34,6 +33,8 @@ type WorkRow = {
   title: string;
   description: string;
   assignee: string;
+  priority: Priority;
+  dueDate: string;
   column: WorkColumn;
   created: string;
   updatedAt: string;
@@ -61,25 +62,16 @@ function safeTaskStatus(s: unknown): WorkStatus {
   return TASK_STATUSES.includes(s as WorkStatus) ? (s as WorkStatus) : "in_progress";
 }
 
-/** Daftar user: gabungan tm_users (Settings) + mock, agar user custom ikut muncul. */
-function loadAssigneeUsers(currentName: string): User[] {
-  let stored: User[] = [];
-  try {
-    const raw = localStorage.getItem("tm_users");
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed)) stored = parsed;
-    }
-  } catch {}
-  const merged = [...stored, ...mockUsers];
+/** Daftar user dari database + user login, agar user custom ikut muncul. */
+function buildAssigneeUsers(users: User[], currentUser: User | null): User[] {
   const seen = new Set<string>();
-  const list = merged.filter((u) => {
+  const list = users.filter((u) => {
     if (!u?.name || seen.has(u.name)) return false;
     seen.add(u.name);
     return true;
   });
-  if (currentName && !seen.has(currentName)) {
-    list.unshift({ id: `u-${Date.now()}`, name: currentName, role: "member" });
+  if (currentUser?.name && !seen.has(currentUser.name)) {
+    list.unshift({ id: currentUser.id, name: currentUser.name, role: currentUser.role });
   }
   return list;
 }
@@ -104,9 +96,9 @@ function plainText(html: string): string {
     .trim();
 }
 
-function buildRows(assignee: string): WorkRow[] {
-  const tasks = loadWorks().filter((w) => w.assignedTo === assignee && !w.cancelled);
-  const issues = loadIssues().filter((i) => i.assignedTo === assignee);
+function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRow[] {
+  const tasks = works.filter((w) => w.assignedTo === assignee && !w.cancelled);
+  const issueItems = issues.filter((i) => i.assignedTo === assignee);
   const rows: WorkRow[] = [
     ...tasks.map(
       (w): WorkRow => {
@@ -118,6 +110,8 @@ function buildRows(assignee: string): WorkRow[] {
           title: w.title,
           description: plainText(w.description ?? ""),
           assignee: w.assignedTo,
+          priority: w.priority,
+          dueDate: w.dueDate,
           column: taskColumn(st),
           created: w.createdAt,
           updatedAt: w.updatedAt,
@@ -129,7 +123,7 @@ function buildRows(assignee: string): WorkRow[] {
         };
       }
     ),
-    ...issues.map(
+    ...issueItems.map(
       (i): WorkRow => ({
         kind: "issue",
         id: i.id,
@@ -137,6 +131,8 @@ function buildRows(assignee: string): WorkRow[] {
         title: i.title,
         description: plainText(i.description ?? ""),
         assignee: i.assignedTo,
+        priority: i.priority,
+        dueDate: i.dueDate,
         column: issueColumn(i.status),
         created: i.createdAt,
         updatedAt: i.updatedAt,
@@ -165,7 +161,7 @@ const listColumns: ColumnDef<WorkRow>[] = [
       <DataTableColumnHeader column={column} title="ID" />
     ),
     cell: ({ row }) => (
-      <span className="font-mono text-xs">{row.getValue("number")}</span>
+      <span className="font-mono text-xs whitespace-nowrap">{row.getValue("number")}</span>
     ),
   },
   {
@@ -176,11 +172,27 @@ const listColumns: ColumnDef<WorkRow>[] = [
     cell: ({ row }) => (
       <Link
         to={row.original.link}
-        className="block max-w-[280px] truncate font-medium hover:underline"
+        title={row.original.title}
+        className="block max-w-[200px] truncate font-medium hover:underline"
       >
         {row.getValue("title")}
       </Link>
     ),
+  },
+  {
+    accessorKey: "description",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Description" />
+    ),
+    cell: ({ row }) => {
+      const text = row.original.description || "";
+      if (!text) return <span className="text-muted-foreground">—</span>;
+      return (
+        <span title={text} className="block max-w-[240px] truncate text-sm text-muted-foreground">
+          {text}
+        </span>
+      );
+    },
   },
   {
     accessorKey: "kind",
@@ -194,6 +206,35 @@ const listColumns: ColumnDef<WorkRow>[] = [
     ),
   },
   {
+    accessorKey: "assignee",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Assigned To" />
+    ),
+    cell: ({ row }) => {
+      const name = row.original.assignee;
+      if (!name) return <span className="text-muted-foreground">—</span>;
+      return (
+        <div className="flex items-center gap-2">
+          <Avatar className="h-6 w-6">
+            <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+              {initials(name)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="max-w-[120px] truncate text-sm">{name}</span>
+        </div>
+      );
+    },
+  },
+  {
+    accessorKey: "priority",
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Priority" />
+    ),
+    cell: ({ row }) => (
+      <PriorityBadge priority={row.original.priority} />
+    ),
+  },
+  {
     accessorKey: "column",
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Status" />
@@ -201,42 +242,38 @@ const listColumns: ColumnDef<WorkRow>[] = [
     cell: ({ row }) => row.original.badge,
   },
   {
-    accessorKey: "updatedAt",
+    accessorKey: "dueDate",
     header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Updated" />
+      <DataTableColumnHeader column={column} title="Due Date" />
     ),
     cell: ({ row }) => (
-      <span className="text-xs whitespace-nowrap text-muted-foreground">
-        {row.getValue("updatedAt")}
-      </span>
+      <span className="text-sm whitespace-nowrap">{row.original.dueDate || "—"}</span>
     ),
   },
 ];
 
 export function MyWork() {
   const { user } = useAuth();
-  const defaultName = user?.name ?? mockUsers[0]?.name ?? "";
+  const { data: works } = useWorks();
+  const { data: issues } = useIssues();
+  const { data: users } = useUsers();
+  const defaultName = user?.name ?? users[0]?.name ?? "";
   const [assignee, setAssignee] = React.useState(defaultName);
   const [q, setQ] = React.useState("");
-  const [rows, setRows] = React.useState<WorkRow[]>(() => buildRows(defaultName));
-  const assigneeOptions = React.useMemo(() => loadAssigneeUsers(defaultName), [defaultName]);
-
-  const reload = React.useCallback(() => {
-    setRows(buildRows(assignee));
-  }, [assignee]);
 
   React.useEffect(() => {
-    reload();
-  }, [reload]);
+    if (!assignee && defaultName) setAssignee(defaultName);
+  }, [assignee, defaultName]);
 
-  React.useEffect(() => {
-    window.addEventListener("tm:works:updated", reload);
-    window.addEventListener("tm:issues:updated", reload);
-    return () => {
-      window.removeEventListener("tm:works:updated", reload);
-      window.removeEventListener("tm:issues:updated", reload);
-    };
-  }, [reload]);
+  const assigneeOptions = React.useMemo(
+    () => buildAssigneeUsers(users, user),
+    [users, user]
+  );
+
+  const rows = React.useMemo(
+    () => buildRows(assignee, works, issues),
+    [assignee, works, issues]
+  );
 
   const filtered = rows.filter(
     (r) =>

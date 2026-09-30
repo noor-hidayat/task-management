@@ -4,6 +4,7 @@ import {
   LogOut,
   UserCircle2,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +26,8 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { avatarColor } from "@/lib/format";
+import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
+import { useMemo } from "react";
 
 
 function getInitials(name: string): string {
@@ -38,6 +41,20 @@ function getInitials(name: string): string {
 
 function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
   const { logout } = useAuth();
+  const navigate = useNavigate();
+  const { data: works } = useWorks();
+  const { data: issues } = useIssues();
+
+  const stats = useMemo(() => {
+    if (!user) return { tasks: 0, done: 0, pending: 0 };
+    const userTasks = works.filter((w) => w.assignedTo === user.name);
+    const userIssues = issues.filter((i) => (i.assignees ?? [i.assignedTo]).includes(user.name));
+    return {
+      tasks: userTasks.length + userIssues.length,
+      done: userTasks.filter((t) => t.status === "completed").length + userIssues.filter((i) => i.status === "closed").length,
+      pending: userTasks.filter((t) => t.status !== "completed").length + userIssues.filter((i) => i.status !== "closed").length,
+    };
+  }, [works, issues, user]);
 
   return (
     <>
@@ -53,7 +70,7 @@ function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"
               {user?.name}
             </p>
             <Badge
-              variant={user?.role === "leader" ? "default" : "secondary"}
+              variant={user?.role === "admin" ? "default" : user?.role === "Team Leader" || user?.role === "Foreman" ? "secondary" : "outline"}
               className="px-1.5 py-0 text-[10px] font-medium capitalize"
             >
               {user?.role}
@@ -67,9 +84,9 @@ function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"
       {/* Quick stats */}
       <div className="grid grid-cols-3 gap-2 px-4 pb-3">
         {[
-          { label: "Tasks", value: "8" },
-          { label: "Done", value: "12" },
-          { label: "Pending", value: "2" },
+          { label: "Tasks", value: stats.tasks },
+          { label: "Done", value: stats.done },
+          { label: "Pending", value: stats.pending },
         ].map((stat) => (
           <div
             key={stat.label}
@@ -84,7 +101,7 @@ function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"
       <DropdownMenuSeparator />
 
       <DropdownMenuGroup>
-        <DropdownMenuItem className="gap-2.5">
+        <DropdownMenuItem className="gap-2.5" onClick={() => navigate("/settings")}>
           <UserCircle2 className="h-4 w-4 text-muted-foreground" />
           <div className="flex flex-col">
             <span className="text-xs font-medium">My Profile</span>
@@ -126,7 +143,7 @@ export function NavUser() {
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{user?.name}</span>
-                <span className="truncate text-xs">Member</span>
+                <span className="truncate text-xs capitalize">{user?.role ?? "Member"}</span>
               </div>
               <ChevronsUpDown className="ml-auto size-4" />
             </SidebarMenuButton>
@@ -164,8 +181,8 @@ export function TopbarUser() {
             <span className="text-xs font-semibold leading-tight">
               {user?.name}
             </span>
-            <span className="text-[10px] text-muted-foreground">
-              Member
+            <span className="text-[10px] text-muted-foreground capitalize">
+              {user?.role ?? "Member"}
             </span>
           </div>
           <ChevronDown className="ml-0.5 h-3.5 w-3.5 text-muted-foreground" />

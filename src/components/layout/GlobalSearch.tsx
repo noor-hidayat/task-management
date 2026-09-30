@@ -10,8 +10,7 @@ import {
   CommandItem,
   CommandList,
 } from "@/components/ui/command";
-import { loadIssues } from "@/lib/storage";
-import { works } from "@/lib/mock";
+import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
 
 const pages = [
   { title: "My Work", url: "/my-work" },
@@ -20,7 +19,6 @@ const pages = [
   { title: "Tasks", url: "/tasks" },
   { title: "Issues", url: "/issues" },
   { title: "Teams", url: "/teams" },
-  { title: "Schedule", url: "/schedule" },
 ];
 
 export function GlobalSearch({
@@ -31,6 +29,8 @@ export function GlobalSearch({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
+  const { data: works } = useWorks();
+  const { data: issues } = useIssues();
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -73,7 +73,7 @@ export function GlobalSearch({
           ))}
         </CommandGroup>
         <CommandGroup heading="Issues">
-          {loadIssues().map((i) => (
+          {issues.map((i) => (
             <CommandItem key={i.id} onSelect={() => go(`/issues/${i.number}`)}>
               <FileText />
               <span>

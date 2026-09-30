@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Plus, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -14,24 +14,73 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import { StatusBadge, PriorityBadge } from "@/components/status-badge";
 import { initials, avatarColor } from "@/lib/format";
 import {
   DataTable,
   DataTableColumnHeader,
 } from "@/components/data-table";
-import { TaskFormDialog } from "@/components/task-form-dialog";
-import { seedIfEmpty, loadWorks } from "@/lib/storage";
+import { TaskFormDialog, toDMY, type TaskFormValues } from "@/components/task-form-dialog";
+import { createWork } from "@/lib/api/works";
+import { pushNotification } from "@/lib/api/notifications";
+import { listProfiles } from "@/lib/api/profiles";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTeams, useWorks } from "@/hooks/useSupabaseLists";
 import type { WorkItem } from "@/types";
 
+/** HTML description -> teks polos satu baris untuk kolom tabel */
+function plainText(html: string): string {
+  return (html ?? "")
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function Tasks() {
-  seedIfEmpty();
-  const works = loadWorks();
+  const navigate = useNavigate();
+  const { user: currentUser } = useAuth();
+  const { data: works } = useWorks();
+  const { data: teams } = useTeams();
 
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("all");
   const [filterPriority, setFilterPriority] = useState<string>("all");
   const [open, setOpen] = useState(false);
+
+  const handleCreate = async (v: TaskFormValues) => {
+    if (!currentUser) return;
+    const teamName = teams.find((t) => t.id === v.teamId)?.name ?? v.teamId;
+    const profiles = await listProfiles();
+    const assignee = profiles.find((u) => u.name === v.assignedTo);
+    const work = await createWork({
+      title: v.title,
+      type: "adhoc",
+      priority: v.priority,
+      status: "todo",
+      assignedToId: assignee?.id ?? currentUser.id,
+      teamId: v.teamId || currentUser.teamId || "",
+      shift: currentUser.shift ?? "Shift 1",
+      dueDate: toDMY(v.dueISO),
+      description: v.description,
+      evidenceRequired: false,
+      createdById: currentUser.id,
+      checklist: v.checklist.map((c) => c.title),
+    });
+    if (assignee && assignee.id !== currentUser.id) {
+      await pushNotification({
+        type: "assignment",
+        title: "Task baru ditugaskan",
+        message: work.title,
+        fromId: currentUser.id,
+        forUserId: assignee.id,
+        link: `/tasks/${work.number}`,
+      });
+    }
+    navigate(`/tasks/${work.number}`);
+    void teamName;
+  };
 
   // ── Filtered data (passed to DataTable) ────────────────────────────
   const filtered = useMemo(() => {
@@ -55,7 +104,7 @@ export function Tasks() {
 
   const total = filtered.length;
 
-  // ── Column definitions ─────────────────────────────────────────────
+  // ── Column definitions: ID | Title | Description | Type | Assigned To | Priority | Status | Due Date ──
   const columns: ColumnDef<WorkItem>[] = useMemo(
     () => [
       {
@@ -64,21 +113,48 @@ export function Tasks() {
           <DataTableColumnHeader column={column} title="ID" />
         ),
         cell: ({ row }) => (
-          <span className="font-mono text-xs">{row.getValue("number")}</span>
+          <span className="font-mono text-xs whitespace-nowrap">{row.getValue("number")}</span>
         ),
       },
       {
         accessorKey: "title",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Task Title" />
+          <DataTableColumnHeader column={column} title="Title" />
         ),
         cell: ({ row }) => (
           <Link
             to={`/tasks/${row.original.number}`}
-            className="block max-w-[280px] truncate font-medium hover:underline"
+            title={row.original.title}
+            className="block max-w-[200px] truncate font-medium hover:underline"
           >
             {row.getValue("title")}
           </Link>
+        ),
+      },
+      {
+        accessorKey: "description",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Description" />
+        ),
+        cell: ({ row }) => {
+          const text = plainText(row.original.description ?? "");
+          if (!text) return <span className="text-muted-foreground">—</span>;
+          return (
+            <span title={text} className="block max-w-[240px] truncate text-sm text-muted-foreground">
+              {text}
+            </span>
+          );
+        },
+      },
+      {
+        id: "type",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Type" />
+        ),
+        cell: () => (
+          <Badge variant="outline" className="font-normal">
+            Task
+          </Badge>
         ),
       },
       {
@@ -96,7 +172,7 @@ export function Tasks() {
                   {initials(name)}
                 </AvatarFallback>
               </Avatar>
-              <span className="truncate text-sm">{name}</span>
+              <span className="max-w-[120px] truncate text-sm">{name}</span>
             </div>
           );
         },
@@ -123,6 +199,9 @@ export function Tasks() {
         accessorKey: "dueDate",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Due Date" />
+        ),
+        cell: ({ row }) => (
+          <span className="text-sm whitespace-nowrap">{(row.getValue("dueDate") as string) || "—"}</span>
         ),
       },
     ],
@@ -190,7 +269,7 @@ export function Tasks() {
               dialogTitle="Create Ad-hoc Task"
               dialogDescription="Supervisor membuat task untuk operator. Bisa juga untuk diri sendiri."
               submitLabel="Create & Assign"
-              onSubmit={() => {}}
+              onSubmit={handleCreate}
             />
           </>
         }

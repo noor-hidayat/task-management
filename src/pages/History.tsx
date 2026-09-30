@@ -6,10 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { works } from "@/lib/mock";
+import { useWorks } from "@/hooks/useSupabaseLists";
 
 export function History() {
   const [q, setQ] = useState("");
+  const { data: works } = useWorks();
   const filtered = works.filter(
     (w) => w.title.toLowerCase().includes(q.toLowerCase()) || w.number.includes(q)
   );

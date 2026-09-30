@@ -1,4 +1,3 @@
-import * as React from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
@@ -29,9 +28,8 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { initials, statusLabel, priorityLabel, avatarColor } from "@/lib/format";
-import { users } from "@/lib/mock";
-import { loadWorks, seedIfEmpty } from "@/lib/storage";
-import type { WorkItem, WorkStatus, Priority } from "@/types";
+import { useUsers, useWorks } from "@/hooks/useSupabaseLists";
+import type { User, WorkItem, WorkStatus, Priority } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
@@ -325,10 +323,10 @@ function TypeDistribution({ tasks }: { tasks: WorkItem[] }) {
 /*  Task by Operator Table                                             */
 /* ------------------------------------------------------------------ */
 
-function OperatorTable({ tasks }: { tasks: WorkItem[] }) {
+function OperatorTable({ tasks, allUsers }: { tasks: WorkItem[]; allUsers: User[] }) {
   const operatorMap = new Map<string, { name: string; total: number; byStatus: Partial<Record<WorkStatus, number>>; byPriority: Partial<Record<Priority, number>> }>();
 
-  users.forEach((u) =>
+  allUsers.forEach((u) =>
     operatorMap.set(u.name, { name: u.name, total: 0, byStatus: {}, byPriority: {} })
   );
 
@@ -460,15 +458,8 @@ function OverdueTasksTable({ tasks }: { tasks: WorkItem[] }) {
 /* ------------------------------------------------------------------ */
 
 export function Dashboard() {
-  const [tasks, setTasks] = React.useState<WorkItem[]>(() => {
-    seedIfEmpty();
-    return loadWorks();
-  });
-  React.useEffect(() => {
-    const reload = () => setTasks(loadWorks());
-    window.addEventListener("tm:works:updated", reload);
-    return () => window.removeEventListener("tm:works:updated", reload);
-  }, []);
+  const { data: tasks } = useWorks();
+  const { data: users } = useUsers();
 
   return (
     <div className="space-y-6">
@@ -498,7 +489,7 @@ export function Dashboard() {
       <Separator />
 
       {/* ── Task by Operator ── */}
-      <OperatorTable tasks={tasks} />
+      <OperatorTable tasks={tasks} allUsers={users} />
 
       <Separator />
 

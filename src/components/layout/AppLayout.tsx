@@ -1,5 +1,5 @@
 import { Link, Outlet, useLocation } from "react-router-dom";
-import { Bell, Search, Clock, User, MessageSquare, AlertTriangle, Moon, Sun } from "lucide-react";
+import { Bell, Search, Clock, User, MessageSquare, AlertTriangle, Moon, Sun, ArrowRightLeft } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import * as React from "react";
 
@@ -28,60 +28,10 @@ import {
 import { SidebarLeft } from "@/components/layout/SidebarLeft";
 import { TopbarUser } from "@/components/layout/NavUser";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { notificationsForUser, relativeTime } from "@/lib/api/notifications";
+import { useNotifications } from "@/hooks/useNotifications";
+import { useAuth } from "@/contexts/AuthContext";
 import { cn } from "@/lib/utils";
-
-const notifications = [
-  {
-    id: "n-1",
-    type: "assignment",
-    title: "New task assigned",
-    message: "Check Machine Line 4",
-    from: "Supervisor A",
-    time: "2 min ago",
-    read: false,
-    taskNumber: "TK-000125",
-  },
-  {
-    id: "n-2",
-    type: "mention",
-    title: "You were mentioned",
-    message: "Please check the pressure reading",
-    from: "Operator B",
-    time: "15 min ago",
-    read: false,
-    taskNumber: "TK-000126",
-  },
-  {
-    id: "n-3",
-    type: "progress",
-    title: "Task in progress",
-    message: "Cleaning Area 2 (60% progress)",
-    from: "Operator A",
-    time: "1 hour ago",
-    read: true,
-    taskNumber: "TK-000126",
-  },
-  {
-    id: "n-4",
-    type: "overdue",
-    title: "Task overdue",
-    message: "Verify stock discrepancy was due yesterday",
-    from: "System",
-    time: "2 hours ago",
-    read: true,
-    taskNumber: "TK-000124",
-  },
-  {
-    id: "n-5",
-    type: "comment",
-    title: "New comment",
-    message: "Great work on the inspection!",
-    from: "Supervisor A",
-    time: "3 hours ago",
-    read: true,
-    taskNumber: "CW-2026-031",
-  },
-];
 
 const notificationIcon: Record<string, React.ReactNode> = {
   assignment: <User className="h-4 w-4" />,
@@ -89,6 +39,7 @@ const notificationIcon: Record<string, React.ReactNode> = {
   progress: <Clock className="h-4 w-4" />,
   overdue: <AlertTriangle className="h-4 w-4" />,
   comment: <MessageSquare className="h-4 w-4" />,
+  handover: <ArrowRightLeft className="h-4 w-4" />,
 };
 
 const crumbs: Record<string, string> = {
@@ -98,8 +49,8 @@ const crumbs: Record<string, string> = {
   "/tasks": "Tasks",
   "/issues": "Issues",
   "/teams": "Teams",
-  "/schedule": "Schedule",
   "/settings": "Settings",
+  "/users": "User Management",
 };
 
 function breadcrumbFor(pathname: string) {
@@ -110,9 +61,17 @@ function breadcrumbFor(pathname: string) {
 
 export function AppLayout() {
   const { pathname } = useLocation();
+  const { user } = useAuth();
   const [searchOpen, setSearchOpen] = React.useState(false);
   const { toggle, isDark } = useTheme();
+  const { data: allNotifications, markRead, markAllRead } = useNotifications();
+
+  const notifications = React.useMemo(
+    () => notificationsForUser(allNotifications, user?.id),
+    [allNotifications, user?.id]
+  );
   const unreadCount = notifications.filter((n) => !n.read).length;
+  const hasUnread = unreadCount > 0;
 
   return (
     <SidebarProvider>
@@ -190,57 +149,69 @@ export function AppLayout() {
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
                 <div className="max-h-[400px] overflow-y-auto">
-                  {notifications.map((notif) => (
-                    <Link
-                      key={notif.id}
-                      to={`/tasks/${notif.taskNumber}`}
-                      className="block"
-                    >
-                      <DropdownMenuItem
-                        className={cn(
-                          "flex flex-col items-start gap-2 px-4 py-3 cursor-pointer",
-                          !notif.read && "bg-muted/40"
-                        )}
+                  {notifications.length === 0 ? (
+                    <p className="px-4 py-8 text-center text-xs text-muted-foreground">
+                      Belum ada notifikasi.
+                    </p>
+                  ) : (
+                    notifications.map((notif) => (
+                      <Link
+                        key={notif.id}
+                        to={notif.link}
+                        className="block"
+                        onClick={() => markRead(notif.id)}
                       >
-                        <div className="flex w-full items-start gap-3">
-                          <div
-                            className={cn(
-                              "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
-                              notif.type === "assignment" && "bg-blue-500/10 text-blue-600",
-                              notif.type === "mention" && "bg-purple-500/10 text-purple-600",
-                              notif.type === "progress" && "bg-amber-500/10 text-amber-600",
-                              notif.type === "overdue" && "bg-red-500/10 text-red-600",
-                              notif.type === "comment" && "bg-green-500/10 text-green-600"
-                            )}
-                          >
-                            {notificationIcon[notif.type]}
-                          </div>
-                          <div className="flex-1 space-y-1">
-                            <div className="flex items-start justify-between gap-2">
-                              <p className="text-xs font-semibold leading-tight">
-                                {notif.title}
-                              </p>
-                              {!notif.read && (
-                                <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-blue-600" />
+                        <DropdownMenuItem
+                          className={cn(
+                            "flex flex-col items-start gap-2 px-4 py-3 cursor-pointer",
+                            !notif.read && "bg-muted/40"
+                          )}
+                        >
+                          <div className="flex w-full items-start gap-3">
+                            <div
+                              className={cn(
+                                "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                                notif.type === "assignment" && "bg-blue-500/10 text-blue-600",
+                                notif.type === "mention" && "bg-purple-500/10 text-purple-600",
+                                notif.type === "progress" && "bg-amber-500/10 text-amber-600",
+                                notif.type === "overdue" && "bg-red-500/10 text-red-600",
+                                notif.type === "comment" && "bg-green-500/10 text-green-600",
+                                notif.type === "handover" && "bg-sky-500/10 text-sky-600"
                               )}
+                            >
+                              {notificationIcon[notif.type]}
                             </div>
-                            <p className="text-xs text-muted-foreground leading-tight">
-                              {notif.message}
-                            </p>
-                            <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                              <span>{notif.from}</span>
-                              <span>•</span>
-                              <span>{notif.time}</span>
+                            <div className="flex-1 space-y-1">
+                              <div className="flex items-start justify-between gap-2">
+                                <p className="text-xs font-semibold leading-tight">
+                                  {notif.title}
+                                </p>
+                                {!notif.read && (
+                                  <span className="mt-0.5 h-2 w-2 shrink-0 rounded-full bg-blue-600" />
+                                )}
+                              </div>
+                              <p className="text-xs text-muted-foreground leading-tight">
+                                {notif.message}
+                              </p>
+                              <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                                <span>{notif.from}</span>
+                                <span>•</span>
+                                <span>{relativeTime(notif.timestamp)}</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      </DropdownMenuItem>
-                    </Link>
-                  ))}
+                        </DropdownMenuItem>
+                      </Link>
+                    ))
+                  )}
                 </div>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="justify-center py-2 text-xs font-medium text-primary">
-                  View all notifications
+                <DropdownMenuItem
+                  className="justify-center py-2 text-xs font-medium text-primary"
+                  disabled={!hasUnread}
+                  onClick={() => markAllRead()}
+                >
+                  Tandai semua dibaca
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

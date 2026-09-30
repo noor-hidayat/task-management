@@ -1,28 +1,17 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { User as UserIcon } from "lucide-react";
+import { User as UserIcon, Lock, Eye, EyeOff } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { users as mockUsers } from "@/lib/mock";
 import { useAuth } from "@/contexts/AuthContext";
-import type { User } from "@/types";
-
-function loadLoginUsers(): User[] {
-  try {
-    const stored = localStorage.getItem("tm_users");
-    if (stored) {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
-    }
-  } catch {}
-  return mockUsers;
-}
 
 export function Login() {
   const { login } = useAuth();
   const navigate = useNavigate();
-  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
 
@@ -31,16 +20,12 @@ export function Login() {
     setError("");
     setIsLoading(true);
 
-    await new Promise((resolve) => setTimeout(resolve, 800));
-
-    const query = name.trim().toLowerCase();
-    const user = loadLoginUsers().find((u) => u.name.toLowerCase() === query);
-    if (!user) {
-      setError("Nama tidak terdaftar");
+    const { error } = await login(username, password);
+    if (error) {
+      setError(error);
       setIsLoading(false);
       return;
     }
-    login(user);
     navigate("/");
   };
 
@@ -68,22 +53,51 @@ export function Login() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="name" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
-                Nama
+              <Label htmlFor="username" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                Username
               </Label>
               <div className="relative">
                 <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
                 <Input
-                  id="name"
+                  id="username"
                   type="text"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="cth: Operator A"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value.toLowerCase())}
+                  placeholder="cth: operator_a / admin"
                   autoComplete="username"
                   required
                   className="pl-10"
                   disabled={isLoading}
                 />
+              </div>
+            </div>
+
+            <div className="space-y-1.5">
+              <Label htmlFor="password" className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                Password
+              </Label>
+              <div className="relative">
+                <Lock className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 h-5 w-5" />
+                <Input
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="Masukkan password"
+                  autoComplete="current-password"
+                  required
+                  className="pl-10 pr-10"
+                  disabled={isLoading}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((s) => !s)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                  aria-label={showPassword ? "Sembunyikan password" : "Tampilkan password"}
+                  tabIndex={-1}
+                >
+                  {showPassword ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5" />}
+                </button>
               </div>
             </div>
 
@@ -104,7 +118,7 @@ export function Login() {
 
           <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-center">
             <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Demo: Operator A, Supervisor A, Operator B
+              Demo: username <span className="font-medium">admin</span> · password <span className="font-medium">admin123</span>
             </p>
           </div>
         </div>

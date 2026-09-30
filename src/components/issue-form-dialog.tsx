@@ -20,7 +20,8 @@ import {
 } from "@/components/ui/select";
 import { RichTextEditor, isEmptyHtml } from "@/components/rich-text-editor";
 import { tomorrowISO } from "@/components/task-form-dialog";
-import { currentUser, users } from "@/lib/mock";
+import { useAuth } from "@/contexts/AuthContext";
+import { useTeams, useUsers } from "@/hooks/useSupabaseLists";
 import type { Priority } from "@/types";
 
 export type IssueFormValues = {
@@ -28,17 +29,18 @@ export type IssueFormValues = {
   description: string;
   priority: Priority;
   assignedTo: string;
+  reportedTeamId: string;
+  assignedTeamId: string;
   plant: string;
   location: string;
   /** ISO yyyy-mm-dd (untuk input date) */
   dueISO: string;
 };
 
-const DEFAULTS: IssueFormValues = {
+const DEFAULTS: Omit<IssueFormValues, "assignedTo" | "reportedTeamId" | "assignedTeamId"> = {
   title: "",
   description: "",
   priority: "medium",
-  assignedTo: currentUser.name,
   plant: "",
   location: "",
   dueISO: tomorrowISO(),
@@ -61,10 +63,16 @@ export function IssueFormDialog({
   submitLabel: string;
   onSubmit: (values: IssueFormValues) => void;
 }) {
+  const { user: currentUser } = useAuth();
+  const { data: teams } = useTeams();
+  const { data: users } = useUsers();
+  const defaultTeamId = currentUser?.teamId ?? teams[0]?.id ?? "";
   const [title, setTitle] = useState(initial?.title ?? DEFAULTS.title);
   const [description, setDescription] = useState(initial?.description ?? DEFAULTS.description);
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? DEFAULTS.priority);
-  const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? DEFAULTS.assignedTo);
+  const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? currentUser?.name ?? "");
+  const [reportedTeamId, setReportedTeamId] = useState(initial?.reportedTeamId ?? defaultTeamId);
+  const [assignedTeamId, setAssignedTeamId] = useState(initial?.assignedTeamId ?? defaultTeamId);
   const [plant, setPlant] = useState(initial?.plant ?? DEFAULTS.plant);
   const [location, setLocation] = useState(initial?.location ?? DEFAULTS.location);
   const [dueISO, setDueISO] = useState(initial?.dueISO ?? tomorrowISO());
@@ -74,13 +82,15 @@ export function IssueFormDialog({
     setTitle(initial?.title ?? DEFAULTS.title);
     setDescription(initial?.description ?? DEFAULTS.description);
     setPriority(initial?.priority ?? DEFAULTS.priority);
-    setAssignedTo(initial?.assignedTo ?? DEFAULTS.assignedTo);
+    setAssignedTo(initial?.assignedTo ?? currentUser?.name ?? "");
+    setReportedTeamId(initial?.reportedTeamId ?? defaultTeamId);
+    setAssignedTeamId(initial?.assignedTeamId ?? initial?.reportedTeamId ?? defaultTeamId);
     setPlant(initial?.plant ?? DEFAULTS.plant);
     setLocation(initial?.location ?? DEFAULTS.location);
     setDueISO(initial?.dueISO ?? tomorrowISO());
   }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const valid = title.trim().length > 0 && assignedTo.trim().length > 0;
+  const valid = title.trim().length > 0 && assignedTo.trim().length > 0 && !!reportedTeamId && !!assignedTeamId;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -90,6 +100,8 @@ export function IssueFormDialog({
       description: isEmptyHtml(description) ? "" : description,
       priority,
       assignedTo,
+      reportedTeamId,
+      assignedTeamId,
       plant: plant.trim(),
       location: location.trim(),
       dueISO,
@@ -130,6 +142,28 @@ export function IssueFormDialog({
           </div>
           {/* Kanan: Assigned To, Priority, Plant, Location */}
           <div className="grid content-start gap-4 md:border-l md:pl-4">
+            <div className="grid gap-2">
+              <Label>Reported by (team)</Label>
+              <Select value={reportedTeamId} onValueChange={setReportedTeamId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {teams.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="grid gap-2">
+              <Label>Assigned to (team)</Label>
+              <Select value={assignedTeamId} onValueChange={setAssignedTeamId}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {teams.map((t) => (
+                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="grid gap-2">
               <Label>Assigned To</Label>
               <Select value={assignedTo} onValueChange={setAssignedTo}>
