@@ -1,11 +1,16 @@
 // Google Drive client untuk Edge Function.
-// Auth: Service Account (JWT → OAuth2 access token).
+// Auth: dua mode (dipilih otomatis):
+//   1) OAuth user (refresh token) — untuk Gmail gratisan. Dipakai kalau
+//      GOOGLE_REFRESH_TOKEN diset. Kuota pakai Drive user tersebut.
+//   2) Service Account (JWT) — untuk Workspace + Shared Drive.
 // Scope drive.file: hanya mengakses file/folder yang dibuat app ini.
 //
 // Secrets yang dibutuhkan (supabase secrets set):
-//   GOOGLE_SERVICE_ACCOUNT_EMAIL
-//   GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY   (PEM, boleh pakai \n literal)
-//   GOOGLE_DRIVE_FOLDER_ID               (root folder di Shared Drive)
+//   GOOGLE_DRIVE_FOLDER_ID               (root folder)
+//   Mode OAuth (gmail gratis): GOOGLE_OAUTH_CLIENT_ID,
+//     GOOGLE_OAUTH_CLIENT_SECRET, GOOGLE_REFRESH_TOKEN
+//   Mode SA (workspace): GOOGLE_SERVICE_ACCOUNT_EMAIL,
+//     GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY (PEM, boleh pakai \n literal)
 
 const GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token";
 const DRIVE_API = "https://www.googleapis.com/drive/v3";
@@ -39,11 +44,43 @@ function pemToPkcs8(pem: string): Uint8Array {
   return bytes;
 }
 
-/* ── Service Account → access token ─────────────────────────── */
+/* ── Access token (otomatis pilih mode) ─────────────────────── */
 export async function getAccessToken(): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
   if (cachedToken && cachedToken.expiresAt - 60 > now) return cachedToken.token;
 
+  // Mode 1: OAuth user (gmail gratisan) — prioritas kalau diset.
+  const refreshToken = Deno.env.get("GOOGLE_REFRESH_TOKEN");
+  if (refreshToken) {
+    const clientId = Deno.env.get("GOOGLE_OAUTH_CLIENT_ID");
+    const clientSecret = Deno.env.get("GOOGLE_OAUTH_CLIENT_SECRET");
+    if (!clientId || !clientSecret) {
+      throw new Error(
+        "GOOGLE_REFRESH_TOKEN diset tapi GOOGLE_OAUTH_CLIENT_ID/SECRET belum diset."
+      );
+    }
+    const res = await fetch(GOOGLE_TOKEN_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        client_id: clientId,
+        client_secret: clientSecret,
+        refresh_token: refreshToken,
+      }),
+    });
+    if (!res.ok) {
+      throw new Error(`Gagal refresh access token Google: ${res.status} ${await res.text()}`);
+    }
+    const data = (await res.json()) as { access_token: string; expires_in: number };
+    cachedToken = {
+      token: data.access_token,
+      expiresAt: now + (data.expires_in ?? 3600),
+    };
+    return cachedToken.token;
+  }
+
+  // Mode 2: Service Account (workspace + Shared Drive).
   const email = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_EMAIL");
   const privateKeyPem = Deno.env.get("GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY");
   if (!email || !privateKeyPem) {
