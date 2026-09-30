@@ -14,7 +14,6 @@ import {
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { StatusBadge, PriorityBadge } from "@/components/status-badge";
 import { initials, avatarColor } from "@/lib/format";
 import {
@@ -104,7 +103,7 @@ export function Tasks() {
 
   const total = filtered.length;
 
-  // ── Column definitions: ID | Title | Description | Type | Assigned To | Priority | Status | Due Date ──
+  // ── Column definitions: ID | Title | Description | Assigned To | Priority | Status | Due Date ──
   const columns: ColumnDef<WorkItem>[] = useMemo(
     () => [
       {
@@ -145,17 +144,6 @@ export function Tasks() {
             </span>
           );
         },
-      },
-      {
-        id: "type",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Type" />
-        ),
-        cell: () => (
-          <Badge variant="outline" className="font-normal">
-            Task
-          </Badge>
-        ),
       },
       {
         accessorKey: "assignedTo",
@@ -266,8 +254,8 @@ export function Tasks() {
             <TaskFormDialog
               open={open}
               onOpenChange={setOpen}
-              dialogTitle="Create Ad-hoc Task"
-              dialogDescription="Supervisor membuat task untuk operator. Bisa juga untuk diri sendiri."
+              dialogTitle="Create Task"
+              dialogDescription="Buat task pekerjaan."
               submitLabel="Create & Assign"
               onSubmit={handleCreate}
             />

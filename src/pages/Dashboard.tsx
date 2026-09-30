@@ -118,40 +118,6 @@ function DonutChart({
   );
 }
 
-/** Simple bar chart (horizontal) */
-function BarChart({
-  data,
-  max,
-  color = "#3b82f6",
-}: {
-  data: { label: string; value: number; sub?: string }[];
-  max?: number;
-  color?: string;
-}) {
-  const m = max ?? Math.max(...data.map((d) => d.value), 1);
-  return (
-    <div className="space-y-2.5">
-      {data.map((d) => (
-        <div key={d.label} className="space-y-1">
-          <div className="flex items-center justify-between text-sm">
-            <span className="truncate font-medium">{d.label}</span>
-            <span className="ml-2 shrink-0 tabular-nums">{d.value}</span>
-          </div>
-          {d.sub && (
-            <p className="text-[11px] text-muted-foreground truncate">{d.sub}</p>
-          )}
-          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${(d.value / m) * 100}%`, backgroundColor: color }}
-            />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /** Simple line chart SVG */
 function LineChart({
   points,
@@ -290,32 +256,6 @@ function CompletionSection({ tasks }: { tasks: WorkItem[] }) {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Tugas Wajib vs Permintaan (Core vs Adhoc)                          */
-/* ------------------------------------------------------------------ */
-
-function TypeDistribution({ tasks }: { tasks: WorkItem[] }) {
-  const active = tasks.filter((t) => !t.cancelled);
-  const coreCount = active.filter((t) => t.type === "core").length;
-  const adhocCount = active.filter((t) => t.type === "adhoc").length;
-  const data = [
-    { label: "Tugas Wajib (Core)", value: coreCount, sub: "Rutin / scheduled" },
-    { label: "Permintaan (Ad-hoc)", value: adhocCount, sub: "Permintaan khusus / one-off" },
-  ];
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Tugas Wajib vs Permintaan</CardTitle>
-        <CardDescription>Perbandingan tugas rutin dan permintaan khusus</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <BarChart data={data} color="#8b5cf6" />
-      </CardContent>
-    </Card>
   );
 }
 
@@ -480,11 +420,6 @@ export function Dashboard() {
 
       {/* ── Donut + Line ── */}
       <CompletionSection tasks={tasks} />
-
-      <Separator />
-
-      {/* ── Core vs Adhoc ── */}
-      <TypeDistribution tasks={tasks} />
 
       <Separator />
 

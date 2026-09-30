@@ -3,7 +3,6 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Dashboard } from "@/pages/Dashboard";
 import { MyWork } from "@/pages/MyWork";
-import { CoreWork } from "@/pages/CoreWork";
 import { Issues } from "@/pages/Issues";
 import { IssueDetail } from "@/pages/IssueDetail";
 import { Tasks } from "@/pages/Tasks";
@@ -47,7 +46,6 @@ function ProtectedRoutes() {
         <Route path="my-task" element={<Navigate to="/my-work" replace />} />
         <Route path="reporting" element={<Report />} />
         {/* Workspace */}
-        <Route path="core-work" element={<CoreWork />} />
         <Route path="tasks" element={<Tasks />} />
         <Route path="tasks/:number" element={<TaskDetail />} />
         <Route path="issues" element={<Issues />} />
