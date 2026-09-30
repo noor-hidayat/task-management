@@ -53,7 +53,6 @@ export function Issues() {
     const assignedTeamId = v.assignedTeamId || reportedTeamId;
     const issue = await createIssue({
       title: v.title,
-      description: v.description,
       priority: v.priority,
       createdById: currentUser.id,
       assigneeIds: assignee ? [assignee.id] : [],

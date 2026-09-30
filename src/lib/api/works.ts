@@ -116,7 +116,7 @@ export interface CreateWorkInput {
   teamId: string;
   shift: string;
   dueDate: string;
-  description: string;
+  description?: string;
   evidenceRequired: boolean;
   createdById: string;
   checklist?: string[];
@@ -140,7 +140,7 @@ export async function createWork(input: CreateWorkInput): Promise<WorkItem> {
       team_id: asUuid(input.teamId),
       shift: input.shift,
       due_date: input.dueDate,
-      description: input.description,
+      description: input.description ?? "",
       evidence_required: input.evidenceRequired,
       created_by: asUuid(input.createdById),
     })

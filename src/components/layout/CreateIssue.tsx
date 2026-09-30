@@ -21,7 +21,6 @@ export function CreateIssueButton({ className }: { className?: string }) {
     const assigneeIds = assignee ? [assignee.id] : [];
     const issue = await createIssue({
       title: v.title,
-      description: v.description,
       priority: v.priority,
       createdById: currentUser.id,
       assigneeIds,

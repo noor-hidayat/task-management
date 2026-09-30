@@ -134,7 +134,7 @@ export async function listIssues(): Promise<Issue[]> {
 
 export interface CreateIssueInput {
   title: string;
-  description: string;
+  description?: string;
   priority: Priority;
   createdById: string;
   assigneeIds: string[];
@@ -151,7 +151,7 @@ export async function createIssue(input: CreateIssueInput): Promise<Issue> {
     .from("issues")
     .insert({
       title: input.title,
-      description: input.description,
+      description: input.description ?? "",
       priority: input.priority,
       status: "open",
       created_by: input.createdById,

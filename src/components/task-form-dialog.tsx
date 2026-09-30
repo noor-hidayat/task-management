@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RichTextEditor, extractChecklist, injectChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
 import { useAuth } from "@/contexts/AuthContext";
 import { useTeams, useUsers } from "@/hooks/useSupabaseLists";
 import type { Priority } from "@/types";
@@ -27,7 +26,6 @@ export type TaskChecklistDraft = { id: string; title: string; done: boolean };
 
 export type TaskFormValues = {
   title: string;
-  description: string;
   priority: Priority;
   /** ISO yyyy-mm-dd (untuk input date) */
   dueISO: string;
@@ -64,17 +62,8 @@ export function dmyToISO(dmy: string): string {
   return `${y}-${String(mi + 1).padStart(2, "0")}-${String(Number(d)).padStart(2, "0")}`;
 }
 
-function newId() {
-  try {
-    return crypto.randomUUID();
-  } catch {
-    return `c-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  }
-}
-
 const DEFAULTS: Omit<TaskFormValues, "assignedTo"> = {
   title: "",
-  description: "",
   priority: "medium",
   dueISO: tomorrowISO(),
   teamId: "",
@@ -106,42 +95,21 @@ export function TaskFormDialog({
   const { data: users } = useUsers();
   const { user: currentUser } = useAuth();
   const [title, setTitle] = useState(initial?.title ?? DEFAULTS.title);
-  const [description, setDescription] = useState(initial?.description ?? DEFAULTS.description);
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? DEFAULTS.priority);
   const [dueISO, setDueISO] = useState(initial?.dueISO ?? DEFAULTS.dueISO);
   const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? currentUser?.name ?? "");
   const [teamId, setTeamId] = useState(initial?.teamId ?? DEFAULTS.teamId);
-
-  // Reset tiap kali dialog dibuka (create kosong / edit terisi data task).
-  // Checklist disuntik ke description agar tambah/hapus cukup lewat description.
-  useEffect(() => {
-    if (!open) return;
-    setTitle(initial?.title ?? DEFAULTS.title);
-    setDescription(injectChecklist(initial?.description ?? DEFAULTS.description, initial?.checklist ?? []));
-    setPriority(initial?.priority ?? DEFAULTS.priority);
-    setDueISO(initial?.dueISO ?? tomorrowISO());
-    setAssignedTo(initial?.assignedTo ?? currentUser?.name ?? "");
-    setTeamId(initial?.teamId ?? DEFAULTS.teamId);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
+  const checklist: TaskChecklistDraft[] = initial?.checklist ?? [];
 
   const handleSubmit = () => {
     if (!title.trim()) return;
-    // Description satu-satunya sumber checklist: tambah/hapus/hapus centang di sini.
-    const prev = new Map((initial?.checklist ?? []).map((c) => [c.title.toLowerCase(), c]));
-    const merged = extractChecklist(description).map((t) => {
-      const p = prev.get(t.title.toLowerCase());
-      return { id: p?.id ?? newId(), title: t.title, done: t.done };
-    });
-    const cleanDesc = stripChecklist(description);
     onSubmit({
       title: title.trim(),
-      description: isEmptyHtml(cleanDesc) ? "" : cleanDesc,
       priority,
       dueISO,
       assignedTo,
       teamId,
-      checklist: merged,
+      checklist,
     });
     onOpenChange(false);
   };
@@ -154,7 +122,7 @@ export function TaskFormDialog({
           {dialogDescription && <DialogDescription>{dialogDescription}</DialogDescription>}
         </DialogHeader>
         <div className="grid gap-4 py-2 md:grid-cols-[1fr_240px]">
-          {/* Kiri: Title + Description */}
+          {/* Kiri: Title */}
           <div className="grid content-start gap-4">
             <div className="grid gap-2">
               <Label htmlFor="tf-title">Title</Label>
@@ -164,15 +132,6 @@ export function TaskFormDialog({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="cth: Check Machine Line 4"
                 autoComplete="off"
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Description</Label>
-              <RichTextEditor
-                value={description}
-                onChange={setDescription}
-                users={users.map((u) => u.name)}
-                placeholder="Tulis deskripsi pekerjaan..."
               />
             </div>
           </div>

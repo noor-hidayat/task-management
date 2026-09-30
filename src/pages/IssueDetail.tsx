@@ -309,7 +309,6 @@ export function IssueDetail() {
     const assigneeId = profiles.find((u) => u.name === v.assignedTo)?.id;
     const patch: Parameters<typeof updateIssue>[1] = {
       title: v.title,
-      description: v.description,
       priority: v.priority,
       dueDate: toDMY(v.dueISO) || issue.dueDate,
       plant: v.plant,
@@ -728,7 +727,6 @@ export function IssueDetail() {
         submitLabel="Simpan"
         initial={{
           title: issue.title,
-          description: issue.description,
           priority: issue.priority,
           assignedTo: issue.assignedTo,
           reportedTeamId: issue.reportedTeamId,

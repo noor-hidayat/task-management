@@ -53,7 +53,6 @@ export function Tasks() {
       teamId: v.teamId || currentUser.teamId || "",
       shift: currentUser.shift ?? "Shift 1",
       dueDate: toDMY(v.dueISO),
-      description: v.description,
       evidenceRequired: false,
       createdById: currentUser.id,
       checklist: v.checklist.map((c) => c.title),

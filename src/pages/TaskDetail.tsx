@@ -66,7 +66,6 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
-import { extractChecklist, isEmptyHtml, stripChecklist } from "@/components/rich-text-editor";
 import { initials, avatarColor } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers, useWorks } from "@/hooks/useSupabaseLists";
@@ -180,7 +179,6 @@ export function TaskDetail() {
   );
   // Display state — diedit lewat dialog Edit, bukan input inline
   const [title, setTitle] = useState(base?.title ?? "");
-  const [description, setDescription] = useState(base?.description ?? "");
   const [priority, setPriority] = useState<Priority>(base?.priority ?? "medium");
   const [dueDate, setDueDate] = useState(base?.dueDate ?? "");
   const [status, setStatus] = useState<WorkStatus>(base?.status ?? "todo");
@@ -191,7 +189,6 @@ export function TaskDetail() {
   useEffect(() => {
     if (!base) return;
     setTitle(base.title);
-    setDescription(base.description);
     setPriority(base.priority);
     setDueDate(base.dueDate);
     setStatus(base.status);
@@ -381,34 +378,15 @@ export function TaskDetail() {
     reload();
   };
 
-  // ---- Checklist (gabungan tersimpan + hasil tombol checklist di description) ----
-  const mergeChecklist = (stored: SubTask[], html: string): SubTask[] => {
-    const next = [...stored];
-    const have = new Set(stored.map((s) => s.title.toLowerCase()));
-    extractChecklist(html).forEach((t, i) => {
-      if (!have.has(t.title.toLowerCase())) {
-        have.add(t.title.toLowerCase());
-        next.push({ id: `desc-${Date.now()}-${i}`, title: t.title, done: t.done });
-      }
-    });
-    return next;
-  };
+  // ---- Checklist (langsung dari DB checklist) ----
   const [subTasks, setSubTasks] = useState<SubTask[]>(() =>
     base
-      ? mergeChecklist(
-          base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
-          base.description
-        )
+      ? base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done }))
       : []
   );
   useEffect(() => {
     if (!base) return;
-    setSubTasks(
-      mergeChecklist(
-        base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })),
-        base.description
-      )
-    );
+    setSubTasks(base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })));
   }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
   const subDoneCount = subTasks.filter((s) => s.done).length;
   const checkProgress =
@@ -993,24 +971,19 @@ export function TaskDetail() {
         showTeam={false}
         initial={{
           title,
-          description,
           priority,
           dueISO: dmyToISO(dueDate),
           checklist: subTasks,
         }}
         onSubmit={async (v) => {
-          const cleanDesc = stripChecklist(v.description);
-          const nextDesc = isEmptyHtml(cleanDesc) ? "" : cleanDesc;
           const nextDue = toDMY(v.dueISO) || "—";
-          const nextChecklist = mergeChecklist(v.checklist, v.description);
+          const nextChecklist = v.checklist;
           setTitle(v.title);
-          setDescription(nextDesc);
           setPriority(v.priority);
           setDueDate(nextDue);
           setSubTasks(nextChecklist);
           await updateWork(base.id, {
             title: v.title,
-            description: nextDesc,
             priority: v.priority,
             dueDate: nextDue,
           });

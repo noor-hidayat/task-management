@@ -18,7 +18,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RichTextEditor, isEmptyHtml } from "@/components/rich-text-editor";
 import { tomorrowISO } from "@/components/task-form-dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers } from "@/hooks/useSupabaseLists";
@@ -26,7 +25,6 @@ import type { Priority } from "@/types";
 
 export type IssueFormValues = {
   title: string;
-  description: string;
   priority: Priority;
   assignedTo: string;
   reportedTeamId: string;
@@ -39,7 +37,6 @@ export type IssueFormValues = {
 
 const DEFAULTS: Omit<IssueFormValues, "assignedTo" | "reportedTeamId" | "assignedTeamId"> = {
   title: "",
-  description: "",
   priority: "medium",
   plant: "",
   location: "",
@@ -67,7 +64,6 @@ export function IssueFormDialog({
   const { data: users } = useUsers();
   const defaultTeamId = currentUser?.teamId ?? "";
   const [title, setTitle] = useState(initial?.title ?? DEFAULTS.title);
-  const [description, setDescription] = useState(initial?.description ?? DEFAULTS.description);
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? DEFAULTS.priority);
   const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? currentUser?.name ?? "");
   const [plant, setPlant] = useState(initial?.plant ?? DEFAULTS.plant);
@@ -77,7 +73,6 @@ export function IssueFormDialog({
   useEffect(() => {
     if (!open) return;
     setTitle(initial?.title ?? DEFAULTS.title);
-    setDescription(initial?.description ?? DEFAULTS.description);
     setPriority(initial?.priority ?? DEFAULTS.priority);
     setAssignedTo(initial?.assignedTo ?? currentUser?.name ?? "");
     setPlant(initial?.plant ?? DEFAULTS.plant);
@@ -92,7 +87,6 @@ export function IssueFormDialog({
     if (!valid) return;
     onSubmit({
       title: title.trim(),
-      description: isEmptyHtml(description) ? "" : description,
       priority,
       assignedTo,
       reportedTeamId: defaultTeamId,
@@ -112,7 +106,7 @@ export function IssueFormDialog({
           {dialogDescription && <DialogDescription>{dialogDescription}</DialogDescription>}
         </DialogHeader>
         <form onSubmit={handleSubmit} className="grid gap-4 py-2 md:grid-cols-[1fr_240px]">
-          {/* Kiri: Title + Description */}
+          {/* Kiri: Title */}
           <div className="grid content-start gap-4">
             <div className="grid gap-2">
               <Label htmlFor="issue-title">Title</Label>
@@ -122,16 +116,6 @@ export function IssueFormDialog({
                 onChange={(e) => setTitle(e.target.value)}
                 placeholder="cth: Tekanan oli mesin Line 4 tidak stabil"
                 autoFocus
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label>Description</Label>
-              <RichTextEditor
-                key={open ? "open" : "closed"}
-                value={description}
-                onChange={setDescription}
-                users={users.map((u) => u.name)}
-                placeholder="Jelaskan masalah yang ditemukan…"
               />
             </div>
           </div>
