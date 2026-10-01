@@ -50,7 +50,10 @@ export function TeamDetail() {
   const [addSelected, setAddSelected] = useState<string[]>([]);
 
   const team = useMemo(() => teams.find((t) => t.id === id), [teams, id]);
-  const works = useMemo(() => allWorks.filter((w) => w.teamId === id), [allWorks, id]);
+  const works = useMemo(
+    () => allWorks.filter((w) => !w.cancelled && (w.teamId === id || (team && w.team === team.name))),
+    [allWorks, id, team]
+  );
   const teamIssues = useMemo(
     () => allIssues.filter((i) => i.reportedTeamId === id || i.assignedTeamId === id),
     [allIssues, id]

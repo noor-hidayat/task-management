@@ -58,20 +58,28 @@ export async function pushNotification(input: {
   forUserId: string | null;
   link: string;
 }): Promise<AppNotification> {
-  const { data, error } = await supabase
-    .from("notifications")
-    .insert({
-      type: input.type,
-      title: input.title,
-      message: input.message,
-      from_id: input.fromId,
-      for_user: input.forUserId,
-      link: input.link,
-    })
-    .select("id, type, title, message, from_id, for_user, link, read, created_at")
-    .single();
+  // Insert-only (tanpa .select()/RETURNING) agar tidak kena cek policy SELECT
+  // pada row baru — penerima membaca notif lewat listNotifications + realtime.
+  const { error } = await supabase.from("notifications").insert({
+    type: input.type,
+    title: input.title,
+    message: input.message,
+    from_id: input.fromId,
+    for_user: input.forUserId,
+    link: input.link,
+  });
   if (error) throw new Error(error.message);
-  return rowToNotification(data as NotificationRow);
+  return {
+    id: `pending-${Date.now()}`,
+    type: input.type,
+    title: input.title,
+    message: input.message,
+    from: "",
+    timestamp: Date.now(),
+    read: false,
+    link: input.link,
+    forUser: input.forUserId ?? undefined,
+  };
 }
 
 export async function markNotificationRead(id: string): Promise<void> {
@@ -107,10 +115,10 @@ export function relativeTime(timestamp: number): string {
 
 export function notificationsForUser(
   list: AppNotification[],
-  name?: string
+  userId?: string
 ): AppNotification[] {
-  if (!name) return list;
-  return list.filter((n) => !n.forUser || n.forUser === name);
+  if (!userId) return list;
+  return list.filter((n) => !n.forUser || n.forUser === userId);
 }
 
 export const NOTIFICATION_TITLES: Record<NotificationType, string> = {
@@ -121,3 +129,51 @@ export const NOTIFICATION_TITLES: Record<NotificationType, string> = {
   comment: "Komentar baru",
   handover: "Issue diserahkan ke tim",
 };
+
+/**
+ * Ekstrak nama user yang di-mention dari konten (HTML rich text maupun plain text)
+ * lalu kirim notifikasi mention ke masing-masing — kecuali penulis sendiri.
+ */
+export async function notifyMentions(input: {
+  content: string;
+  users: { id: string; name: string }[];
+  fromId: string | null;
+  fromName?: string;
+  title: string;
+  message: string;
+  link: string;
+}): Promise<void> {
+  const mentioned = new Set<string>();
+  // 1. Dari HTML rich text: <span class="rt-mention" data-user="Nama">
+  for (const m of input.content.matchAll(
+    /<span[^>]*class="[^"]*rt-mention[^"]*"[^>]*data-user="([^"]+)"[^>]*>/gi
+  )) {
+    if (m[1]) mentioned.add(m[1]);
+  }
+  // 2. Dari plain text: @Nama (cocokkan nama terpanjang dulu agar "Budi S" menang atas "Budi")
+  // Case-insensitive agar "@administrator" tetap cocok dengan "Administrator".
+  const names = [...input.users.map((u) => u.name)].sort((a, b) => b.length - a.length);
+  if (names.length > 0) {
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@(${names.map(esc).join("|")})(?![\\w])`, "gi");
+    for (const m of input.content.matchAll(re)) mentioned.add(m[1]);
+  }
+  const lowerName = (s: string) => s.toLowerCase();
+  console.log("[notifyMentions] content:", input.content, "| users:", input.users.length, "| from:", input.fromName);
+  for (const name of mentioned) {
+    if (input.fromName && lowerName(name) === lowerName(input.fromName)) continue;
+    const target =
+      input.users.find((u) => u.name === name) ??
+      input.users.find((u) => lowerName(u.name) === lowerName(name));
+    console.log("[notifyMentions] mention:", name, "-> target:", target?.id ?? "TIDAK KETEMU");
+    if (!target || target.id === input.fromId) continue;
+    await pushNotification({
+      type: "mention",
+      title: input.title,
+      message: input.message,
+      fromId: input.fromId,
+      forUserId: target.id,
+      link: input.link,
+    });
+  }
+}

@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { initials, avatarColor } from "@/lib/format";
@@ -37,10 +38,11 @@ type TeamRow = Team & {
 };
 
 export function Teams() {
-  const { data: teams, reload } = useTeams();
-  const { data: users } = useUsers();
-  const { data: works } = useWorks();
-  const { data: issues } = useIssues();
+  const { data: teams, loading: teamsLoading, reload } = useTeams();
+  const { data: users, loading: usersLoading } = useUsers();
+  const { data: works, loading: worksLoading } = useWorks();
+  const { data: issues, loading: issuesLoading } = useIssues();
+  const isLoading = teamsLoading || usersLoading || worksLoading || issuesLoading;
 
   const [search, setSearch] = useState("");
   const [open, setOpen] = useState(false);
@@ -53,7 +55,7 @@ export function Teams() {
       ...t,
       leaderName: nameOf(t.leaderId),
       memberCount: t.memberIds.length,
-      taskCount: works.filter((w) => w.teamId === t.id).length,
+      taskCount: works.filter((w) => !w.cancelled && (w.teamId === t.id || w.team === t.name)).length,
       issueCount: issues.filter((i) => i.reportedTeamId === t.id || i.assignedTeamId === t.id).length,
     }));
   }, [teams, users, works, issues]);
@@ -149,7 +151,6 @@ export function Teams() {
     <div className="space-y-6">
       <PageHeader
         title="Teams"
-        description="Struktur organisasi / membership yang relatif stabil."
         actions={
           <Button onClick={() => setOpen(true)}>
             <Plus className="h-4 w-4" /> Create Team
@@ -157,13 +158,17 @@ export function Teams() {
         }
       />
 
-      <DataTable<TeamRow, unknown>
-        columns={columns}
-        data={filtered}
-        pageSize={10}
-        toolbar={toolbar}
-        footer={footer}
-      />
+      {isLoading ? (
+        <PageSkeleton variant="table" rows={6} columns={4} />
+      ) : (
+        <DataTable<TeamRow, unknown>
+          columns={columns}
+          data={filtered}
+          pageSize={10}
+          toolbar={toolbar}
+          footer={footer}
+        />
+      )}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-md">

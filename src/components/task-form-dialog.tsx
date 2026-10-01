@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { RichTextEditor } from "@/components/rich-text-editor";
 import {
   Select,
   SelectContent,
@@ -19,18 +20,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useAuth } from "@/contexts/AuthContext";
-import { useTeams, useUsers } from "@/hooks/useSupabaseLists";
+import { useLocations, usePlants, useTeams, useUsers } from "@/hooks/useSupabaseLists";
 import type { Priority } from "@/types";
 
 export type TaskChecklistDraft = { id: string; title: string; done: boolean };
 
 export type TaskFormValues = {
   title: string;
+  description: string;
   priority: Priority;
   /** ISO yyyy-mm-dd (untuk input date) */
   dueISO: string;
   assignedTo: string;
   teamId: string;
+  plant: string;
+  location: string;
   checklist: TaskChecklistDraft[];
 };
 
@@ -64,9 +68,12 @@ export function dmyToISO(dmy: string): string {
 
 const DEFAULTS: Omit<TaskFormValues, "assignedTo"> = {
   title: "",
+  description: "",
   priority: "medium",
   dueISO: tomorrowISO(),
   teamId: "",
+  plant: "",
+  location: "",
   checklist: [],
 };
 
@@ -93,22 +100,42 @@ export function TaskFormDialog({
 }) {
   const { data: teams } = useTeams();
   const { data: users } = useUsers();
+  const { data: plants } = usePlants();
+  const { data: locations } = useLocations();
   const { user: currentUser } = useAuth();
   const [title, setTitle] = useState(initial?.title ?? DEFAULTS.title);
+  const [description, setDescription] = useState(initial?.description ?? DEFAULTS.description);
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? DEFAULTS.priority);
   const [dueISO, setDueISO] = useState(initial?.dueISO ?? DEFAULTS.dueISO);
-  const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? currentUser?.name ?? "");
+  const [assignedTo, setAssignedTo] = useState(initial?.assignedTo ?? "");
   const [teamId, setTeamId] = useState(initial?.teamId ?? DEFAULTS.teamId);
+  const [plant, setPlant] = useState(initial?.plant ?? DEFAULTS.plant);
+  const [location, setLocation] = useState(initial?.location ?? DEFAULTS.location);
   const checklist: TaskChecklistDraft[] = initial?.checklist ?? [];
+
+  useEffect(() => {
+    if (!open) return;
+    setTitle(initial?.title ?? DEFAULTS.title);
+    setDescription(initial?.description ?? DEFAULTS.description);
+    setPriority(initial?.priority ?? DEFAULTS.priority);
+    setDueISO(initial?.dueISO ?? DEFAULTS.dueISO);
+    setAssignedTo(initial?.assignedTo ?? "");
+    setTeamId(initial?.teamId ?? DEFAULTS.teamId);
+    setPlant(initial?.plant ?? DEFAULTS.plant);
+    setLocation(initial?.location ?? DEFAULTS.location);
+  }, [open]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleSubmit = () => {
     if (!title.trim()) return;
     onSubmit({
       title: title.trim(),
+      description: description.trim(),
       priority,
       dueISO,
       assignedTo,
       teamId,
+      plant: plant.trim(),
+      location: location.trim(),
       checklist,
     });
     onOpenChange(false);
@@ -122,7 +149,7 @@ export function TaskFormDialog({
           {dialogDescription && <DialogDescription>{dialogDescription}</DialogDescription>}
         </DialogHeader>
         <div className="grid gap-4 py-2 md:grid-cols-[1fr_240px]">
-          {/* Kiri: Title */}
+          {/* Kiri: Title + Description */}
           <div className="grid content-start gap-4">
             <div className="grid gap-2">
               <Label htmlFor="tf-title">Title</Label>
@@ -134,14 +161,25 @@ export function TaskFormDialog({
                 autoComplete="off"
               />
             </div>
+            <div className="grid gap-2">
+              <Label>Description</Label>
+              <RichTextEditor
+                value={description}
+                onChange={setDescription}
+                users={users.map((u) => u.name)}
+                placeholder="Deskripsi detail task..."
+                height={200}
+              />
+            </div>
           </div>
           {/* Kanan: Assigned To, Team, Priority, Due Date */}
+          <div className="grid content-start gap-4 md:border-l md:pl-4">
           {showAssignee && (
             <div className="grid gap-2">
               <Label>Assigned To</Label>
               <Select value={assignedTo} onValueChange={setAssignedTo}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select Assignee" />
                 </SelectTrigger>
                 <SelectContent>
                   {users.map((u) => (
@@ -158,7 +196,7 @@ export function TaskFormDialog({
               <Label>Team</Label>
               <Select value={teamId} onValueChange={setTeamId}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Select Team" />
                 </SelectTrigger>
                 <SelectContent>
                   {teams.map((t) => (
@@ -184,6 +222,38 @@ export function TaskFormDialog({
             </Select>
           </div>
           <div className="grid gap-2">
+            <Label>Plant</Label>
+            <Select value={plant || "__none"} onValueChange={(v) => setPlant(v === "__none" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select Plant" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">—</SelectItem>
+                {plants.map((p) => (
+                  <SelectItem key={p.id} value={p.name}>
+                    {p.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
+            <Label>Location</Label>
+            <Select value={location || "__none"} onValueChange={(v) => setLocation(v === "__none" ? "" : v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select Location" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__none">—</SelectItem>
+                {locations.map((l) => (
+                  <SelectItem key={l.id} value={l.name}>
+                    {l.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="grid gap-2">
             <Label htmlFor="tf-due">Due Date</Label>
             <Input
               id="tf-due"
@@ -191,6 +261,7 @@ export function TaskFormDialog({
               value={dueISO}
               onChange={(e) => setDueISO(e.target.value)}
             />
+          </div>
           </div>
         </div>
         <DialogFooter>

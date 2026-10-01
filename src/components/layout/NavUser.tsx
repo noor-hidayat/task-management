@@ -46,13 +46,11 @@ function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"
   const { data: issues } = useIssues();
 
   const stats = useMemo(() => {
-    if (!user) return { tasks: 0, done: 0, pending: 0 };
+    if (!user) return { tasks: 0 };
     const userTasks = works.filter((w) => w.assignedTo === user.name);
     const userIssues = issues.filter((i) => (i.assignees ?? [i.assignedTo]).includes(user.name));
     return {
       tasks: userTasks.length + userIssues.length,
-      done: userTasks.filter((t) => t.status === "completed").length + userIssues.filter((i) => i.status === "closed").length,
-      pending: userTasks.filter((t) => t.status !== "completed").length + userIssues.filter((i) => i.status !== "closed").length,
     };
   }, [works, issues, user]);
 
@@ -82,11 +80,9 @@ function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"
       <DropdownMenuSeparator />
 
       {/* Quick stats */}
-      <div className="grid grid-cols-3 gap-2 px-4 pb-3">
+      <div className="grid grid-cols-1 gap-2 px-4 pb-3">
         {[
           { label: "Tasks", value: stats.tasks },
-          { label: "Done", value: stats.done },
-          { label: "Pending", value: stats.pending },
         ].map((stat) => (
           <div
             key={stat.label}

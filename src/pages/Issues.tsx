@@ -1,46 +1,81 @@
 import { useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Link, useNavigate } from "react-router-dom";
-import { Plus, Search } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
+import { Ban, CheckCircle2, Loader2, Plus, Search, Ticket, X } from "lucide-react";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { IssueStatusBadge, PriorityBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import {
-  DataTable,
-  DataTableColumnHeader,
-} from "@/components/data-table";
+import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
 import { toDMY } from "@/components/task-form-dialog";
-import { avatarColor, initials } from "@/lib/format";
+import { avatarColor, initials, issueDisplayStatus } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIssues, useTeams } from "@/hooks/useSupabaseLists";
 import { createIssue } from "@/lib/api/issues";
+import { notifyMentions, pushNotification } from "@/lib/api/notifications";
 import { listProfiles } from "@/lib/api/profiles";
-import type { Issue, IssueStatus } from "@/types";
+import type { Issue } from "@/types";
+import { AdvancedFilterBuilder, evaluateFilter, type FilterState, type FilterField } from "@/components/advanced-filter";
+
+const issueStatConfig = [
+  { key: "total" as const, label: "Total Issue", icon: Ticket, color: "text-blue-600 bg-blue-50 dark:bg-blue-950" },
+  { key: "open" as const, label: "Open", icon: Loader2, color: "text-amber-600 bg-amber-50 dark:bg-amber-950" },
+  { key: "inProgress" as const, label: "In Progress", icon: Loader2, color: "text-sky-600 bg-sky-50 dark:bg-sky-950" },
+  { key: "closed" as const, label: "Closed", icon: CheckCircle2, color: "text-green-600 bg-green-50 dark:bg-green-950" },
+  { key: "cancelled" as const, label: "Cancelled", icon: Ban, color: "text-red-600 bg-red-50 dark:bg-red-950" },
+];
 
 export function Issues() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
-  const { data: list, reload } = useIssues();
-  const { data: teams } = useTeams();
+  const { data: list, loading: listLoading, reload } = useIssues();
+  const { data: teams, loading: teamsLoading } = useTeams();
+  const isLoading = listLoading || teamsLoading;
   const [q, setQ] = useState("");
-  const [status, setStatus] = useState<string>("all");
   const [open, setOpen] = useState(false);
 
+  // New filter builder state
+  const [filterState, setFilterState] = useState<FilterState>({
+    groups: [{ id: "root", operator: "AND", conditions: [] }],
+  });
+
   const filtered = useMemo(
-    () =>
-      list.filter((i) => {
+    () => {
+      let filteredList = list.filter((i) => {
         const matchQ =
           i.title.toLowerCase().includes(q.toLowerCase()) ||
           i.number.toLowerCase().includes(q.toLowerCase());
-        const matchS = status === "all" || i.status === (status as IssueStatus);
-        return matchQ && matchS;
-      }),
-    [list, q, status]
+        return matchQ;
+      });
+      // Apply condition-builder filter
+      const flat = filteredList.map((i) => ({
+        ...i,
+        assignedTo: i.assignedTo ?? "",
+        assignedTeam: i.assignedTeam ?? "",
+        reportedTeam: i.reportedTeam ?? "",
+        dueDate: i.dueDate ?? "",
+        // Status efektif agar "Cancelled" bisa difilter
+        status: issueDisplayStatus(i),
+      }));
+      const result = evaluateFilter(filterState, flat as unknown as Record<string, unknown>[]);
+      return result as unknown as Issue[];
+    },
+    [list, q, filterState]
+  );
+
+  // ── KPI stats ──────────────────────────────────────────────────────
+  const stats = useMemo(
+    () => ({
+      total: list.length,
+      open: list.filter((i) => !i.cancelled && i.status === "open").length,
+      inProgress: list.filter((i) => !i.cancelled && i.status === "in_progress").length,
+      closed: list.filter((i) => !i.cancelled && i.status === "closed").length,
+      cancelled: list.filter((i) => i.cancelled).length,
+    }),
+    [list]
   );
 
   const handleCreate = async (v: IssueFormValues) => {
@@ -53,6 +88,7 @@ export function Issues() {
     const assignedTeamId = v.assignedTeamId || reportedTeamId;
     const issue = await createIssue({
       title: v.title,
+      description: v.description,
       priority: v.priority,
       createdById: currentUser.id,
       assigneeIds: assignee ? [assignee.id] : [],
@@ -62,11 +98,31 @@ export function Issues() {
       location: v.location,
       dueDate: toDMY(v.dueISO),
     });
+    if (assignee && assignee.id !== currentUser.id) {
+      await pushNotification({
+        type: "assignment",
+        title: "Issue baru ditugaskan",
+        message: issue.title,
+        fromId: currentUser.id,
+        forUserId: assignee.id,
+        link: `/issues/${issue.number}`,
+      });
+    }
+    // Kirim notifikasi mention
+    await notifyMentions({
+      content: v.description,
+      users: profiles,
+      fromId: currentUser.id,
+      fromName: currentUser.name,
+      title: "Anda disebutkan dalam issue",
+      message: issue.title,
+      link: `/issues/${issue.number}`,
+    });
     reload();
     navigate(`/issues/${issue.number}`);
   };
 
-  // ── Column definitions: ID | Title | Description | Type | Assigned To | Priority | Status | Due Date ──
+  // ── Column definitions: ID | Title | Description | Assigned To | Priority | Status | Due Date ──
   const columns: ColumnDef<Issue>[] = useMemo(
     () => [
       {
@@ -94,15 +150,19 @@ export function Issues() {
         ),
       },
       {
-        id: "type",
+        accessorKey: "description",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Type" />
+          <DataTableColumnHeader column={column} title="Description" />
         ),
-        cell: () => (
-          <Badge variant="outline" className="font-normal">
-            Issue
-          </Badge>
-        ),
+        cell: ({ row }) => {
+          const desc = row.getValue("description") as string;
+          if (!desc) return <span className="text-muted-foreground">—</span>;
+          return (
+            <span className="block max-w-[260px] truncate text-sm text-muted-foreground" title={desc}>
+              {desc}
+            </span>
+          );
+        },
       },
       {
         accessorKey: "assignedTo",
@@ -139,7 +199,7 @@ export function Issues() {
           <DataTableColumnHeader column={column} title="Status" />
         ),
         cell: ({ row }) => (
-          <IssueStatusBadge status={row.getValue("status")} />
+          <IssueStatusBadge status={issueDisplayStatus(row.original)} />
         ),
       },
       {
@@ -155,30 +215,106 @@ export function Issues() {
     []
   );
 
-  // ── Toolbar (search + filters) ─────────────────────────────────────
+    // ── Filter fields definition ───────────────────────────────────────
+  const filterFields = useMemo<FilterField[]>(
+    () => [
+      {
+        key: "status",
+        label: "Status",
+        type: "select",
+        options: [
+          { value: "open", label: "Open" },
+          { value: "in_progress", label: "In Progress" },
+          { value: "on_hold", label: "On Hold" },
+          { value: "closed", label: "Closed" },
+          { value: "cancelled", label: "Cancelled" },
+        ],
+      },
+      {
+        key: "priority",
+        label: "Priority",
+        type: "select",
+        options: [
+          { value: "low", label: "Low" },
+          { value: "medium", label: "Medium" },
+          { value: "high", label: "High" },
+        ],
+      },
+      {
+        key: "assignedTo",
+        label: "Assigned To",
+        type: "select",
+        options: Array.from(new Set(list.map((i) => i.assignedTo).filter(Boolean)))
+          .sort()
+          .map((name) => ({ value: name, label: name })),
+      },
+      {
+        key: "assignedTeam",
+        label: "Assigned Team",
+        type: "select",
+        options: teams.map((t) => ({ value: t.name, label: t.name })),
+      },
+      {
+        key: "reportedTeam",
+        label: "Reported Team",
+        type: "select",
+        options: teams.map((t) => ({ value: t.name, label: t.name })),
+      },
+      {
+        key: "dueDate",
+        label: "Due Date",
+        type: "date-range",
+      },
+      {
+        key: "title",
+        label: "Title",
+        type: "text",
+      },
+      {
+        key: "number",
+        label: "Issue ID",
+        type: "text",
+      },
+      {
+        key: "plant",
+        label: "Plant",
+        type: "text",
+      },
+      {
+        key: "location",
+        label: "Location",
+        type: "text",
+      },
+    ],
+    [list, teams]
+  );
+
+  // ── Toolbar (menu name left · search + new issue right) ────────────
   const toolbar = (
-    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
-      <div className="relative flex-1 max-w-sm">
-        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input
-          placeholder="Cari ID / Issue Title…"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="pl-9"
-        />
+    <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-lg font-semibold tracking-tight">Issues</h2>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:gap-3">
+          <AdvancedFilterBuilder
+            filter={filterState}
+            onFilterChange={setFilterState}
+            fields={filterFields}
+            namespace="issues"
+          />
+          <div className="relative flex-1 sm:w-64 sm:flex-none">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Cari ID / Issue Title…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <Button onClick={() => setOpen(true)} className="shrink-0">
+            <Plus className="h-4 w-4" /> New Issue
+          </Button>
+        </div>
       </div>
-      <Select value={status} onValueChange={setStatus}>
-        <SelectTrigger className="w-[160px]">
-          <SelectValue placeholder="Status" />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem value="all">All Status</SelectItem>
-          <SelectItem value="open">Open</SelectItem>
-          <SelectItem value="in_progress">In Progress</SelectItem>
-          <SelectItem value="on_hold">On Hold</SelectItem>
-          <SelectItem value="closed">Closed</SelectItem>
-        </SelectContent>
-      </Select>
     </div>
   );
 
@@ -192,31 +328,45 @@ export function Issues() {
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Issues"
-        actions={
-          <>
-            <Button onClick={() => setOpen(true)}>
-              <Plus className="h-4 w-4" /> Report Issue
-            </Button>
-            <IssueFormDialog
-              open={open}
-              onOpenChange={setOpen}
-              dialogTitle="Report Issue"
-              dialogDescription="Laporkan masalah — bisa dilengkapi attachment di halaman detail."
-              submitLabel="Report Issue"
-              onSubmit={handleCreate}
-            />
-          </>
-        }
-      />
+      {/* ── KPI cards ──────────────────────────────────────────────── */}
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {issueStatConfig.map((s) => {
+          const Icon = s.icon;
+          return (
+            <Card key={s.key}>
+              <CardContent className="flex items-center gap-3 p-4">
+                <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${s.color}`}>
+                  <Icon className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                  <p className="text-xl font-bold tabular-nums">{stats[s.key]}</p>
+                </div>
+              </CardContent>
+            </Card>
+          );
+        })}
+      </div>
 
-      <DataTable<Issue, unknown>
-        columns={columns}
-        data={filtered}
-        pageSize={10}
-        toolbar={toolbar}
-        footer={footer}
+      {/* ── Menu name (left) · search + new issue (right) ───────────── */}
+      {isLoading ? (
+        <PageSkeleton variant="table" rows={8} columns={5} />
+      ) : (
+        <DataTable<Issue, unknown>
+          columns={columns}
+          data={filtered}
+          pageSize={10}
+          toolbar={toolbar}
+          footer={footer}
+        />
+      )}
+
+      <IssueFormDialog
+        open={open}
+        onOpenChange={setOpen}
+        dialogTitle="New Issue"
+        submitLabel="Report Issue"
+        onSubmit={handleCreate}
       />
     </div>
   );

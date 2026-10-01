@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -34,7 +33,8 @@ import { initials, avatarColor } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { listProfiles } from "@/lib/api/profiles";
 import { createWork } from "@/lib/api/works";
-import { useTeams, useUsers } from "@/hooks/useSupabaseLists";
+import { notifyMentions, pushNotification } from "@/lib/api/notifications";
+import { useLocations, usePlants, useTeams, useUsers } from "@/hooks/useSupabaseLists";
 
 const createTaskSchema = z.object({
   title: z.string().min(3, "Title minimal 3 karakter."),
@@ -42,6 +42,8 @@ const createTaskSchema = z.object({
   priority: z.enum(["low", "medium", "high"]),
   assignee: z.string().optional(),
   dueDate: z.string().optional(),
+  plant: z.string().optional(),
+  location: z.string().optional(),
 });
 
 export type CreateTaskValues = z.infer<typeof createTaskSchema>;
@@ -56,6 +58,8 @@ export function CreateTaskDialog({
   onSubmit: (data: CreateTaskValues) => void;
 }) {
   const { data: users } = useUsers();
+  const { data: plants } = usePlants();
+  const { data: locations } = useLocations();
   const form = useForm<CreateTaskValues>({
     resolver: zodResolver(createTaskSchema),
     defaultValues: {
@@ -64,6 +68,8 @@ export function CreateTaskDialog({
       priority: "medium",
       assignee: "",
       dueDate: tomorrowISO(),
+      plant: "",
+      location: "",
     },
   });
 
@@ -88,10 +94,7 @@ export function CreateTaskDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-4xl">
         <DialogHeader className="pb-4">
-          <DialogTitle className="text-lg font-semibold">Create Task</DialogTitle>
-          <DialogDescription className="text-sm text-muted-foreground mt-0.5">
-            Create a new task
-          </DialogDescription>
+          <DialogTitle className="text-lg font-semibold">New Task</DialogTitle>
         </DialogHeader>
 
         <form id="create-task-form" onSubmit={form.handleSubmit(handleSubmit)} className="space-y-5">
@@ -148,7 +151,7 @@ export function CreateTaskDialog({
                     <FieldLabel htmlFor="ct-assignee">Assignee</FieldLabel>
                     <Select value={field.value || ""} onValueChange={(v) => field.onChange(v)}>
                       <SelectTrigger aria-invalid={fieldState.invalid} id="ct-assignee">
-                        <SelectValue placeholder="Select person" />
+                        <SelectValue placeholder="Select Assignee" />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="">Unassigned</SelectItem>
@@ -214,6 +217,64 @@ export function CreateTaskDialog({
                   </Field>
                 )}
               />
+
+              <Controller
+                name="plant"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="ct-plant">Plant</FieldLabel>
+                    <Select
+                      value={field.value || "__none"}
+                      onValueChange={(v) => field.onChange(v === "__none" ? "" : v)}
+                    >
+                      <SelectTrigger aria-invalid={fieldState.invalid} id="ct-plant">
+                        <SelectValue placeholder="Select Plant" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">—</SelectItem>
+                        {plants.map((p) => (
+                          <SelectItem key={p.id} value={p.name}>
+                            {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
+
+              <Controller
+                name="location"
+                control={form.control}
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="ct-location">Location</FieldLabel>
+                    <Select
+                      value={field.value || "__none"}
+                      onValueChange={(v) => field.onChange(v === "__none" ? "" : v)}
+                    >
+                      <SelectTrigger aria-invalid={fieldState.invalid} id="ct-location">
+                        <SelectValue placeholder="Select Location" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__none">—</SelectItem>
+                        {locations.map((l) => (
+                          <SelectItem key={l.id} value={l.name}>
+                            {l.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
+                )}
+              />
             </div>
           </div>
         </form>
@@ -244,7 +305,7 @@ export function CreateTaskButton({ className }: { className?: string }) {
     const assignee = v.assignee
       ? profiles.find((u) => u.name === v.assignee)
       : undefined;
-    await createWork({
+    const work = await createWork({
       title: v.title,
       type: "adhoc",
       priority: v.priority,
@@ -254,9 +315,31 @@ export function CreateTaskButton({ className }: { className?: string }) {
       shift: currentUser.shift ?? "Shift 1",
       dueDate: v.dueDate ? toDMY(v.dueDate) : toDMY(tomorrowISO()),
       description: isEmptyHtml(cleanDesc) ? "" : cleanDesc,
+      plant: v.plant?.trim() ?? "",
+      location: v.location?.trim() ?? "",
       evidenceRequired: false,
       createdById: currentUser.id,
       checklist: checklistItems,
+    });
+    if (assignee && assignee.id !== currentUser.id) {
+      await pushNotification({
+        type: "assignment",
+        title: "Task baru ditugaskan",
+        message: work.title,
+        fromId: currentUser.id,
+        forUserId: assignee.id,
+        link: `/tasks/${work.number}`,
+      });
+    }
+    // Kirim notifikasi mention
+    await notifyMentions({
+      content: v.description,
+      users: profiles,
+      fromId: currentUser.id,
+      fromName: currentUser.name,
+      title: "Anda disebutkan dalam task",
+      message: work.title,
+      link: `/tasks/${work.number}`,
     });
   };
   return (

@@ -383,7 +383,9 @@ export function RichTextEditor({
           suppressContentEditableWarning
           role="textbox"
           aria-label="Description"
+          tabIndex={0}
           data-placeholder={placeholder}
+          onMouseDown={(e) => { e.stopPropagation(); ref.current?.focus(); }}
           onInput={() => {
             emit();
             detectMention();
@@ -480,4 +482,14 @@ export function injectChecklist(html: string, items: { title: string; done: bool
 /** Buang blok checklist (<ul class="rt-task-list">) dari HTML description. */
 export function stripChecklist(html: string): string {
   return html.replace(/<ul[^>]*rt-task-list[^>]*>[\s\S]*?<\/ul>/gi, "").trim();
+}
+
+/** Ekstrak daftar user yang di-mention dari HTML (span.rt-mention dengan data-user). */
+export function extractMentions(html: string): string[] {
+  const matches = html.matchAll(/<span[^>]*class="[^"]*rt-mention[^"]*"[^>]*data-user="([^"]+)"[^>]*>/gi);
+  const names = new Set<string>();
+  for (const m of matches) {
+    if (m[1]) names.add(m[1]);
+  }
+  return Array.from(names);
 }

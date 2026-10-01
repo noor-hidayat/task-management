@@ -25,18 +25,66 @@ export interface UploadResult {
   fileType: string;
 }
 
-/** Upload file ke Drive + simpan metadata. */
+/** Batas sisi terpanjang gambar (px) dan kualitas JPEG/WebP. */
+const MAX_IMAGE_DIM = 1920;
+const IMAGE_QUALITY = 0.82;
+/** Di bawah ukuran ini gambar dianggap sudah kecil — tidak dikompres. */
+const SKIP_BELOW_BYTES = 500 * 1024;
+
+/**
+ * Kompres gambar di browser: downscale ke MAX_IMAGE_DIM + kompresi quality.
+ * Non-gambar, GIF animasi, dan SVG dikembalikan apa adanya.
+ * Kalau hasil kompresi malah lebih besar, file asli yang dipakai.
+ */
+async function compressImage(file: File): Promise<File> {
+  if (!file.type.startsWith("image/")) return file;
+  if (file.type === "image/gif" || file.type === "image/svg+xml") return file;
+  if (typeof createImageBitmap !== "function") return file;
+  let bitmap: ImageBitmap | null = null;
+  try {
+    bitmap = await createImageBitmap(file);
+  } catch {
+    return file;
+  }
+  if (!bitmap) return file;
+  try {
+    const scale = Math.min(1, MAX_IMAGE_DIM / Math.max(bitmap.width, bitmap.height));
+    if (scale === 1 && file.size < SKIP_BELOW_BYTES) return file;
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return file;
+    ctx.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const mime =
+      file.type === "image/png"
+        ? "image/png"
+        : file.type === "image/webp"
+          ? "image/webp"
+          : "image/jpeg";
+    const blob = await new Promise<Blob | null>((res) =>
+      canvas.toBlob(res, mime, IMAGE_QUALITY)
+    );
+    if (!blob || blob.size >= file.size) return file;
+    return new File([blob], file.name, { type: blob.type || file.type, lastModified: Date.now() });
+  } finally {
+    bitmap.close();
+  }
+}
+
+/** Upload file ke Drive + simpan metadata. Gambar dikompres otomatis dulu. */
 export async function uploadAttachment(
   ownerType: OwnerKind,
   ownerId: string,
   ownerLabel: string,
   file: File
 ): Promise<UploadResult> {
+  const compressed = await compressImage(file);
   const form = new FormData();
   form.append("owner_type", ownerType);
   form.append("owner_id", ownerId);
   form.append("owner_label", ownerLabel);
-  form.append("file", file);
+  form.append("file", compressed);
 
   const res = await fetch(`${FUNCTIONS_BASE()}?action=upload`, {
     method: "POST",
@@ -55,7 +103,7 @@ export async function uploadAttachment(
     attachmentId: data.attachment.id,
     driveFileId: data.drive_file_id,
     fileName: data.attachment.file_name,
-    fileSize: data.attachment.file_size || formatBytes(file.size),
+    fileSize: data.attachment.file_size || formatBytes(compressed.size),
     fileType: data.attachment.file_type,
   };
 }

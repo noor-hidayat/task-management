@@ -11,6 +11,7 @@ import {
   DataTableColumnHeader,
 } from "@/components/data-table";
 import { IssueStatusBadge, PriorityBadge, StatusBadge } from "@/components/status-badge";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { avatarColor, initials } from "@/lib/format";
 import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
@@ -208,8 +209,9 @@ const listColumns: ColumnDef<WorkRow>[] = [
 
 export function MyWork() {
   const { user } = useAuth();
-  const { data: works } = useWorks();
-  const { data: issues } = useIssues();
+  const { data: works, loading: worksLoading } = useWorks();
+  const { data: issues, loading: issuesLoading } = useIssues();
+  const isLoading = worksLoading || issuesLoading;
   const assignee = user?.name ?? "";
   const [q, setQ] = React.useState("");
 
@@ -230,9 +232,6 @@ export function MyWork() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div className="space-y-1">
           <h1 className="text-2xl font-semibold tracking-tight">My Work</h1>
-          <p className="text-sm text-muted-foreground">
-            Daftar task &amp; issue yang ditugaskan kepada Anda ({assignee || "—"})
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Input
@@ -244,6 +243,9 @@ export function MyWork() {
         </div>
       </div>
 
+      {isLoading ? (
+        <PageSkeleton variant="kanban" columns={4} />
+      ) : (
       <Tabs defaultValue="kanban" className="space-y-3">
         <TabsList className="w-fit">
           <TabsTrigger value="kanban">Kanban</TabsTrigger>
@@ -254,6 +256,7 @@ export function MyWork() {
           <div className="grid gap-3 py-4 md:grid-cols-2 xl:grid-cols-4">
             {COLUMNS.map((col) => {
               const items = latest.filter((r) => r.column === col.key);
+              const totalInColumn = filtered.filter((r) => r.column === col.key).length;
               return (
                 <div key={col.key} className="bg-muted/40 flex min-h-48 flex-col rounded-xl border">
                   <div className="flex items-center justify-between gap-2 p-3">
@@ -261,7 +264,7 @@ export function MyWork() {
                       <p className="text-sm font-semibold">{col.title}</p>
                       <p className="text-xs text-muted-foreground">{col.hint}</p>
                     </div>
-                    <Badge variant="secondary">{items.length}</Badge>
+                    <Badge variant="secondary" title={`${totalInColumn} total`}>{totalInColumn}</Badge>
                   </div>
                   <div className="flex-1 space-y-2 p-3 pt-0">
                     {items.map((r) => (
@@ -327,6 +330,7 @@ export function MyWork() {
           />
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }

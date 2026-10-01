@@ -1,7 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import type { ChecklistItem, WorkItem } from "@/types";
 import { makeNameMap, nameOf } from "./mappers";
+import { formatDateTime } from "@/lib/format";
 import { fetchActivityMap, fetchAttachmentMap, fetchCommentMap } from "./related";
+import { deleteAttachment } from "./attachments";
 
 interface WorkRow {
   id: string;
@@ -16,6 +18,8 @@ interface WorkRow {
   shift: string | null;
   due_date: string | null;
   description: string | null;
+  plant: string | null;
+  location: string | null;
   progress: number;
   evidence_required: boolean;
   cancelled: boolean;
@@ -55,14 +59,16 @@ function rowToWork(
     shift: row.shift ?? "",
     dueDate: row.due_date ?? "",
     description: row.description ?? "",
+    plant: row.plant ?? "",
+    location: row.location ?? "",
     progress: row.progress,
     evidenceRequired: row.evidence_required,
     cancelled: row.cancelled,
     evidences: [],
     checklist,
     note: row.note ?? "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: formatDateTime(row.created_at),
+    updatedAt: formatDateTime(row.updated_at),
     activities: [],
   };
 }
@@ -117,6 +123,8 @@ export interface CreateWorkInput {
   shift: string;
   dueDate: string;
   description?: string;
+  plant?: string;
+  location?: string;
   evidenceRequired: boolean;
   createdById: string;
   checklist?: string[];
@@ -141,6 +149,8 @@ export async function createWork(input: CreateWorkInput): Promise<WorkItem> {
       shift: input.shift,
       due_date: input.dueDate,
       description: input.description ?? "",
+      plant: input.plant ?? "",
+      location: input.location ?? "",
       evidence_required: input.evidenceRequired,
       created_by: asUuid(input.createdById),
     })
@@ -171,6 +181,8 @@ export async function updateWork(
     shift: string;
     dueDate: string;
     description: string;
+    plant: string;
+    location: string;
     progress: number;
     evidenceRequired: boolean;
     cancelled: boolean;
@@ -186,6 +198,8 @@ export async function updateWork(
   if (patch.shift !== undefined) dbPatch.shift = patch.shift;
   if (patch.dueDate !== undefined) dbPatch.due_date = patch.dueDate;
   if (patch.description !== undefined) dbPatch.description = patch.description;
+  if (patch.plant !== undefined) dbPatch.plant = patch.plant;
+  if (patch.location !== undefined) dbPatch.location = patch.location;
   if (patch.progress !== undefined) dbPatch.progress = patch.progress;
   if (patch.evidenceRequired !== undefined) dbPatch.evidence_required = patch.evidenceRequired;
   if (patch.cancelled !== undefined) dbPatch.cancelled = patch.cancelled;
@@ -197,6 +211,21 @@ export async function updateWork(
 }
 
 export async function deleteWork(id: string): Promise<void> {
+  // Hapus file Drive + metadata attachment satu per satu (best effort).
+  // Sisa baris (comments/activities/notifications/attachments) dibersihkan
+  // oleh trigger DB saat parent dihapus.
+  const { data: atts } = await supabase
+    .from("attachments")
+    .select("id, drive_file_id")
+    .eq("owner_type", "work")
+    .eq("owner_id", id);
+  for (const a of (atts ?? []) as { id: string; drive_file_id: string }[]) {
+    try {
+      await deleteAttachment(a.id, a.drive_file_id);
+    } catch {
+      // Diabaikan — trigger DB membersihkan sisa metadata.
+    }
+  }
   const { error } = await supabase.from("works").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }

@@ -97,7 +97,6 @@ export function Settings() {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        description="Kelola profil dan preferensi tampilan Anda"
       />
 
       {saved && (

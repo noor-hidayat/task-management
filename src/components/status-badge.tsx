@@ -1,9 +1,12 @@
 import type { IssueStatus, Priority, WorkStatus } from "@/types";
-import { issueStatusLabel, statusLabel, statusVariant, priorityLabel } from "@/lib/format";
+import { issueStatusLabel, statusLabel, statusVariant, priorityLabel, type WorkDisplayStatus, type IssueDisplayStatus } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
-export function StatusBadge({ status, className }: { status: WorkStatus; className?: string }) {
+export function StatusBadge({ status, className }: { status: WorkDisplayStatus; className?: string }) {
+  if (status === "cancelled") {
+    return <Badge variant="destructive" className={cn(className)}>Cancelled</Badge>;
+  }
   return (
     <Badge variant={statusVariant[status]} className={cn(className)}>
       {statusLabel[status]}
@@ -22,7 +25,10 @@ const issueStatusVariant: Record<IssueStatus, "todo" | "progress" | "completed">
   closed: "completed",
 };
 
-export function IssueStatusBadge({ status, className }: { status: IssueStatus; className?: string }) {
+export function IssueStatusBadge({ status, className }: { status: IssueDisplayStatus; className?: string }) {
+  if (status === "cancelled") {
+    return <Badge variant="destructive" className={cn(className)}>Cancelled</Badge>;
+  }
   return (
     <Badge variant={issueStatusVariant[status]} className={cn(className)}>
       {issueStatusLabel[status]}

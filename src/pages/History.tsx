@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { StatusBadge } from "@/components/status-badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,7 +11,7 @@ import { useWorks } from "@/hooks/useSupabaseLists";
 
 export function History() {
   const [q, setQ] = useState("");
-  const { data: works } = useWorks();
+  const { data: works, loading: worksLoading } = useWorks();
   const filtered = works.filter(
     (w) => w.title.toLowerCase().includes(q.toLowerCase()) || w.number.includes(q)
   );
@@ -19,9 +20,11 @@ export function History() {
     <div className="space-y-6">
       <PageHeader
         title="History"
-        description="Task history & team report. Semua aktivitas penting tercatat."
       />
 
+      {worksLoading ? (
+        <PageSkeleton variant="table" rows={6} columns={4} />
+      ) : (
       <Tabs defaultValue="tasks">
         <TabsList>
           <TabsTrigger value="tasks">Task History</TabsTrigger>
@@ -95,6 +98,7 @@ export function History() {
         </TabsContent>
 
       </Tabs>
+      )}
     </div>
   );
 }

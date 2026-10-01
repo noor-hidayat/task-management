@@ -77,7 +77,6 @@ export function Notes() {
     <div className="space-y-6 pb-20">
       <PageHeader
         title="Notes"
-        description="Catatan shift pribadi — bukan activity system. Untuk history resmi lihat Task Detail → Activity."
       />
 
       <div className="flex items-center justify-between">

@@ -1,7 +1,9 @@
 import { supabase } from "@/lib/supabase";
 import type { HandoverEntry, Issue, Priority, IssueStatus } from "@/types";
 import { makeNameMap, nameOf } from "./mappers";
+import { formatDateTime } from "@/lib/format";
 import { fetchActivityMap, fetchAttachmentMap, fetchCommentMap } from "./related";
+import { deleteAttachment } from "./attachments";
 
 interface IssueRow {
   id: string;
@@ -18,9 +20,11 @@ interface IssueRow {
   location: string | null;
   due_date: string | null;
   resolution: string | null;
-  closed_by: string | null;
   closed_at: string | null;
+  start_datetime: string | null;
+  end_datetime: string | null;
   hold_reason: string | null;
+  cancelled: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -119,13 +123,17 @@ export async function listIssues(): Promise<Issue[]> {
       location: r.location ?? "",
       dueDate: r.due_date ?? "",
       resolution: r.resolution ?? undefined,
-      closedBy: r.closed_by ? nameOf(names, r.closed_by) : undefined,
-      closedAt: r.closed_at ?? undefined,
+      closedAt: r.closed_at ? formatDateTime(r.closed_at) : undefined,
+      startDateTime: r.start_datetime ? formatDateTime(r.start_datetime) : undefined,
+      endDateTime: r.end_datetime ? formatDateTime(r.end_datetime) : undefined,
+      startDateTimeISO: r.start_datetime ?? undefined,
+      endDateTimeISO: r.end_datetime ?? undefined,
       holdReason: r.hold_reason ?? undefined,
+      cancelled: r.cancelled ?? false,
       evidences: attachmentMap.get(r.id) ?? [],
       comments: commentMap.get(r.id) ?? [],
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
+      createdAt: formatDateTime(r.created_at),
+      updatedAt: formatDateTime(r.updated_at),
       activities: activityMap.get(r.id) ?? [],
     };
     return issue;
@@ -189,7 +197,9 @@ export async function updateIssue(
     dueDate: string;
     plant: string;
     location: string;
-    closedById: string | null;
+    cancelled: boolean;
+    startDatetime: string | null;
+    endDatetime: string | null;
   }>
 ): Promise<void> {
   const dbPatch: Record<string, unknown> = {};
@@ -203,6 +213,9 @@ export async function updateIssue(
   if (patch.dueDate !== undefined) dbPatch.due_date = patch.dueDate;
   if (patch.plant !== undefined) dbPatch.plant = patch.plant;
   if (patch.location !== undefined) dbPatch.location = patch.location;
+  if (patch.cancelled !== undefined) dbPatch.cancelled = patch.cancelled;
+  if (patch.startDatetime !== undefined) dbPatch.start_datetime = patch.startDatetime;
+  if (patch.endDatetime !== undefined) dbPatch.end_datetime = patch.endDatetime;
 
   if (patch.assigneeIds) {
     dbPatch.assigned_to = patch.assigneeIds[0] ?? null;
@@ -216,10 +229,8 @@ export async function updateIssue(
 
   if (patch.status === "closed") {
     dbPatch.closed_at = new Date().toISOString();
-    dbPatch.closed_by = patch.closedById ?? null;
   } else if (patch.status !== undefined) {
     dbPatch.closed_at = null;
-    dbPatch.closed_by = null;
   }
 
   if (Object.keys(dbPatch).length === 0) return;
@@ -228,6 +239,21 @@ export async function updateIssue(
 }
 
 export async function deleteIssue(id: string): Promise<void> {
+  // Hapus file Drive + metadata attachment satu per satu (best effort).
+  // Sisa baris (comments/activities/notifications/attachments) dibersihkan
+  // oleh trigger DB saat parent dihapus.
+  const { data: atts } = await supabase
+    .from("attachments")
+    .select("id, drive_file_id")
+    .eq("owner_type", "issue")
+    .eq("owner_id", id);
+  for (const a of (atts ?? []) as { id: string; drive_file_id: string }[]) {
+    try {
+      await deleteAttachment(a.id, a.drive_file_id);
+    } catch {
+      // Diabaikan — trigger DB membersihkan sisa metadata.
+    }
+  }
   const { error } = await supabase.from("issues").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }

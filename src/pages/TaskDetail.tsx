@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlignLeft,
+  Ban,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
   CircleDot,
   Download,
+  Factory,
   FileText,
   Flag,
   Image as ImageIcon,
   ListChecks,
+  MapPin,
   MoveLeft,
   Paperclip,
   Pencil,
@@ -18,13 +21,15 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Send,
+  SendHorizontal,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
 
 import { PriorityBadge, StatusBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Attachment,
   AttachmentAction,
@@ -59,6 +64,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -66,15 +72,20 @@ import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
+import { RichTextView, sanitizeRichHtml, extractChecklist, type RichCheckItem, checklistToHtml, stripChecklist, injectChecklist } from "@/components/rich-text-editor";
+
 import { initials, avatarColor } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
-import { useUsers, useWorks } from "@/hooks/useSupabaseLists";
+import { useUsers } from "@/hooks/useSupabaseLists";
+import { useWork } from "@/hooks/useWork";
 import {
   updateWork,
+  deleteWork,
   replaceChecklist,
   logActivity,
 } from "@/lib/api/works";
-import { pushNotification } from "@/lib/api/notifications";
+import { notifyMentions, pushNotification } from "@/lib/api/notifications";
+import { addComment } from "@/lib/api/related";
 import {
   uploadAttachment,
   deleteAttachment,
@@ -171,12 +182,8 @@ function SectionTitle({
 export function TaskDetail() {
   const { number } = useParams();
   const { user: currentUser } = useAuth();
-  const { data: allWorks, reload } = useWorks();
   const { data: allUsers } = useUsers();
-  const base = useMemo(
-    () => allWorks.find((w) => w.number === number) ?? allWorks[0],
-    [allWorks, number]
-  );
+  const { data: base, loading: worksLoading, reload, refreshAttachments, refreshChecklist } = useWork(number);
   // Display state — diedit lewat dialog Edit, bukan input inline
   const [title, setTitle] = useState(base?.title ?? "");
   const [priority, setPriority] = useState<Priority>(base?.priority ?? "medium");
@@ -185,6 +192,12 @@ export function TaskDetail() {
   const [cancelled, setCancelled] = useState(!!base?.cancelled);
   const [editOpen, setEditOpen] = useState(false);
   const [completeOpen, setCompleteOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const navigate = useNavigate();
+  
 
   useEffect(() => {
     if (!base) return;
@@ -207,15 +220,14 @@ export function TaskDetail() {
     setAssignees(base ? [base.assignedTo] : []);
   }, [base]);
 
-  /** Simpan perubahan ke Supabase + catat aktivitas, lalu reload. */
+  /** Simpan perubahan ke Supabase + catat aktivitas. Realtime subscription akan refresh. */
   const persist = useCallback(
     async (patch: Parameters<typeof updateWork>[1], activity?: string) => {
       if (!base) return;
       await updateWork(base.id, patch);
       if (activity) await logActivity("work", base.id, activity, currentUser?.id ?? null);
-      reload();
     },
-    [base, currentUser, reload]
+    [base, currentUser]
   );
 
   const atMatch = pickerQuery.match(/@([\w ]*)$/);
@@ -335,17 +347,22 @@ export function TaskDetail() {
 
   const onPickFiles = async (files: FileList | null) => {
     if (!files || files.length === 0 || !base) return;
-    const list = Array.from(files);
-    for (const f of list) {
-      await uploadAttachment("work", base.id, base.number, f);
+    setUploadError(null);
+    try {
+      const list = Array.from(files);
+      for (const f of list) {
+        await uploadAttachment("work", base.id, base.number, f);
+      }
+      await logActivity(
+        "work",
+        base.id,
+        list.length === 1 ? `added attachment (${list[0].name})` : `added ${list.length} attachments`,
+        currentUser?.id ?? null
+      );
+      await refreshAttachments();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload gagal");
     }
-    await logActivity(
-      "work",
-      base.id,
-      list.length === 1 ? `added attachment (${list[0].name})` : `added ${list.length} attachments`,
-      currentUser?.id ?? null
-    );
-    reload();
   };
   const downloadItem = (a: AttachmentItem) => {
     if (!a.url) return;
@@ -368,26 +385,33 @@ export function TaskDetail() {
       });
     }
     if (!target?.driveFileId) return;
-    await deleteAttachment(id, target.driveFileId);
-    await logActivity(
-      "work",
-      base.id,
-      target ? `removed attachment (${target.name})` : "removed attachment",
-      currentUser?.id ?? null
-    );
-    reload();
+    try {
+      await deleteAttachment(id, target.driveFileId);
+      await logActivity(
+        "work",
+        base.id,
+        target ? `removed attachment (${target.name})` : "removed attachment",
+        currentUser?.id ?? null
+      );
+    } catch (e) {
+      console.error("delete attachment error:", e);
+    } finally {
+      await refreshAttachments();
+    }
   };
 
-  // ---- Checklist (langsung dari DB checklist) ----
+  // ---- Checklist (extract dari description HTML) ----
+  const checklistFromDesc: RichCheckItem[] = useMemo(
+    () => extractChecklist(base?.description || ""),
+    [base?.description]
+  );
   const [subTasks, setSubTasks] = useState<SubTask[]>(() =>
-    base
-      ? base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done }))
-      : []
+    checklistFromDesc.map((c, i) => ({ id: `check-${i}`, title: c.title, done: c.done }))
   );
   useEffect(() => {
     if (!base) return;
-    setSubTasks(base.checklist.map((c) => ({ id: c.id, title: c.label, done: c.done })));
-  }, [base]); // eslint-disable-line react-hooks/exhaustive-deps
+    setSubTasks(checklistFromDesc.map((c, i) => ({ id: `check-${i}`, title: c.title, done: c.done })));
+  }, [base, checklistFromDesc]);
   const subDoneCount = subTasks.filter((s) => s.done).length;
   const checkProgress =
     subTasks.length === 0 ? 0 : Math.round((subDoneCount / subTasks.length) * 100);
@@ -395,11 +419,12 @@ export function TaskDetail() {
     if (!base) return;
     const next = subTasks.map((s) => (s.id === id ? { ...s, done: !s.done } : s));
     setSubTasks(next);
-    await replaceChecklist(
-      base.id,
-      next.map((s) => ({ id: s.id, label: s.title, done: s.done }))
-    );
-    reload();
+    // Update checklist di dalam HTML description
+    const newDesc =
+      stripChecklist(base.description || "") +
+      (stripChecklist(base.description || "") ? "<p><br></p>" : "") +
+      checklistToHtml(next.map((s) => ({ title: s.title, done: s.done })));
+    await persist({ description: newDesc });
   };
 
   const startTask = async () => {
@@ -416,6 +441,24 @@ export function TaskDetail() {
     setStatus("completed");
     await persist({ status: "completed", progress: 100 }, "completed task");
     setCompleteOpen(false);
+  };
+
+  const cancelTask = async () => {
+    setCancelled(true);
+    await persist({ cancelled: true }, "cancelled task");
+    setCancelOpen(false);
+  };
+
+  const deleteTask = async () => {
+    if (!base) return;
+    setDeleteError(null);
+    try {
+      await deleteWork(base.id);
+      setDeleteOpen(false);
+      navigate("/tasks");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Gagal menghapus task");
+    }
   };
 
   // ---- Comments ----
@@ -489,31 +532,24 @@ export function TaskDetail() {
     if (!base) return;
     const clean = draft.trim();
     if (!clean) return;
+    const authorId = currentUser?.id ?? null;
+    if (!authorId) return;
     const at = nowLabel();
     const entry = { id: `c-${Date.now()}`, author: currentUser?.name ?? "—", time: at, text: clean };
     setComments((prev) => [...prev, entry]);
-    await logActivity("work", base.id, "commented", currentUser?.id ?? null);
+    // Simpan comment ke database agar bisa dilihat user lain & persist
+    await addComment("work", base.id, authorId, clean);
+    await logActivity("work", base.id, "commented", authorId);
     // Kirim notifikasi mention ke setiap user yang disebut (@Nama), kecuali diri sendiri.
-    const names = [...allUsers.map((u) => u.name)].sort((a, b) => b.length - a.length);
-    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const mentioned = new Set<string>();
-    if (names.length > 0) {
-      const re = new RegExp(`@(${names.map(esc).join("|")})(?![\\w])`, "g");
-      for (const m of clean.matchAll(re)) mentioned.add(m[1]);
-    }
-    for (const name of mentioned) {
-      if (name === currentUser?.name) continue;
-      const target = allUsers.find((u) => u.name === name);
-      if (!target) continue;
-      await pushNotification({
-        type: "mention",
-        title: "Anda disebut",
-        message: clean,
-        fromId: currentUser?.id ?? null,
-        forUserId: target.id,
-        link: `/tasks/${base.number}`,
-      });
-    }
+    await notifyMentions({
+      content: clean,
+      users: allUsers,
+      fromId: authorId,
+      fromName: currentUser?.name,
+      title: "Anda disebut",
+      message: clean.length > 80 ? `${clean.slice(0, 80)}…` : clean,
+      link: `/tasks/${base.number}`,
+    });
     setDraft("");
     setMentionQuery(null);
     if (commentInputRef.current) commentInputRef.current.style.height = "auto";
@@ -549,7 +585,6 @@ export function TaskDetail() {
         notes.length > 0 ? notes.join("; ") : "added a note",
         currentUser?.id ?? null
       );
-      reload();
     }
     for (const name of added) {
       if (name === currentUser?.name) continue;
@@ -570,10 +605,59 @@ export function TaskDetail() {
     setAssigneeDialogOpen(false);
   };
 
-  if (!base) {
+  if (worksLoading || !base) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center">
-        <p className="text-sm text-muted-foreground">Task tidak ditemukan.</p>
+      <div className="flex flex-col gap-6 lg:h-[calc(100svh-5.5rem)]">
+        {/* Breadcrumb skeleton */}
+        <div className="flex shrink-0 items-center gap-2">
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+
+        {/* Main + Sidebar layout */}
+        <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-6">
+          {/* Main content skeleton */}
+          <main className="min-w-0 flex-1 space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <Skeleton className="h-7 w-96" />
+                <Skeleton className="h-9 w-24" />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-2 w-full" />
+              <Skeleton className="h-16 w-full rounded-lg" />
+            </div>
+
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-32 w-full rounded-lg" />
+            </div>
+
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-24 w-full rounded-lg" />
+            </div>
+          </main>
+
+          {/* Sidebar skeleton */}
+          <aside className="w-full space-y-4 lg:w-80 lg:shrink-0">
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          </aside>
+        </div>
       </div>
     );
   }
@@ -611,9 +695,11 @@ export function TaskDetail() {
                 <h3 className="truncate text-lg font-bold leading-none tracking-tight">
                   {title || "Untitled task"}
                 </h3>
-                {cancelled && <Badge variant="destructive">Cancelled</Badge>}
+                <StatusBadge status={cancelled ? "cancelled" : status} className="shrink-0" />
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {(currentUser?.role === "admin" ||
+                  (currentUser?.name ? assignees.includes(currentUser.name) : false)) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -623,35 +709,57 @@ export function TaskDetail() {
                   <DropdownMenuContent align="end">
                     {status === "completed" ? (
                       <DropdownMenuItem onClick={reopenTask}>
-                        <RotateCcw className="h-4 w-4" /> Reopen Task
+                        <RotateCcw className="h-4 w-4" /> Reopen
                       </DropdownMenuItem>
                     ) : (
                       <>
                         <DropdownMenuItem onClick={() => setEditOpen(true)}>
-                          <Pencil className="h-4 w-4" /> Edit Task
+                          <Pencil className="h-4 w-4" /> Edit
                         </DropdownMenuItem>
                         {status === "todo" ? (
                           <DropdownMenuItem onClick={startTask}>
-                            <Play className="h-4 w-4" /> Start Task
+                            <Play className="h-4 w-4" /> Start
                           </DropdownMenuItem>
                         ) : (
                           <DropdownMenuItem onClick={() => setCompleteOpen(true)}>
-                            <CheckCircle2 className="h-4 w-4" /> Complete Task
+                            <CheckCircle2 className="h-4 w-4" /> Complete
                           </DropdownMenuItem>
                         )}
-
+                        {!cancelled && (
+                          <DropdownMenuItem onClick={() => setCancelOpen(true)}>
+                            <Ban className="h-4 w-4" /> Cancel
+                          </DropdownMenuItem>
+                        )}
                       </>
                     )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4" /> Delete
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
               </div>
             </div>
           </section>
 
-            {/* Checklist — tanpa kotak */}
-            <section className="space-y-3">
-              <SectionTitle icon={<ListChecks />} title="Checklist" count={subTasks.length} />
-              {subTasks.length > 0 && (
+          {/* Description */}
+          <section className="space-y-3">
+            <SectionTitle icon={<FileText />} title="Description" />
+            <div
+              className="rich-content resize-none text-sm bg-muted/30 rounded-lg border border-input px-3 py-2 min-h-[14rem] font-sans whitespace-pre-wrap"
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stripChecklist(base?.description || "")) }}
+            />
+          </section>
+
+          {/* Checklist — hanya tampil jika ada checklist di description */}
+          {subTasks.length > 0 && (
+            <>
+              <section className="space-y-3">
+                <SectionTitle icon={<ListChecks />} title="Checklist" count={subTasks.length} />
                 <div className="space-y-2">
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
                     <Progress value={checkProgress} className="h-1.5 flex-1" />
@@ -683,18 +791,16 @@ export function TaskDetail() {
                     ))}
                   </ul>
                 </div>
-              )}
-              {subTasks.length === 0 && (
-                <p className="text-sm text-muted-foreground">Belum ada checklist.</p>
-              )}
-            </section>
-            <div className="border-t" />
+              </section>
+              <div className="border-t" />
+            </>
+          )}
 
-            {/* Comments — di bawah description, di atas activity */}
+          {/* Comments — di bawah description, di atas activity */}
             <section className="space-y-4">
               <SectionTitle title="Comments" icon={<AlignLeft />} count={comments.length} />
             <div className="relative">
-                <div className="flex items-center gap-2 rounded-xl border bg-background p-2 focus-within:ring-1 focus-within:ring-ring">
+                <div className="flex items-center gap-1 rounded-md border bg-background p-0.5 focus-within:ring-1 focus-within:ring-ring">
                   <Textarea
                     ref={commentInputRef}
                     id="task-comment"
@@ -746,17 +852,17 @@ export function TaskDetail() {
                     }}
                     placeholder="add comment..."
                     rows={1}
-                    className="h-9 max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
+                    className="h-7 max-h-16 min-h-7 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-0.5 text-sm shadow-none focus-visible:ring-0"
                   />
                   <Button
                     size="icon"
-                    className="h-9 w-9 shrink-0 rounded-lg"
+                    className="h-7 w-7 shrink-0 rounded-md"
                     onClick={postComment}
                     disabled={!draft.trim()}
                     aria-label="Send comment"
                     title="Kirim"
                   >
-                    <Send className="h-4 w-4" />
+                    <SendHorizontal className="h-3.5 w-3.5" />
                   </Button>
                 </div>
                 {mentionQuery !== null && mentionSuggestions.length > 0 && (
@@ -843,7 +949,7 @@ export function TaskDetail() {
             </section>
           </main>
 
-        {/* Details panel kanan — Status | Priority | Due Date | Assigned To */}
+        {/* Details panel kanan — Priority | Plant | Location | Due Date | Assigned To */}
         <aside className="min-w-0 lg:w-[320px] lg:shrink-0 lg:border-l lg:pl-6">
           <div className="space-y-4 lg:sticky lg:top-0">
             <div className="space-y-4">
@@ -870,11 +976,14 @@ export function TaskDetail() {
                   <span className="text-sm text-muted-foreground">—</span>
                 )}
               </DetailField>
-              <DetailField icon={<CircleDot />} label="Status">
-                <StatusBadge status={status} />
-              </DetailField>
               <DetailField icon={<Flag />} label="Priority">
                 <PriorityBadge priority={priority} />
+              </DetailField>
+              <DetailField icon={<Factory />} label="Plant">
+                <span className="text-sm">{base?.plant || "—"}</span>
+              </DetailField>
+              <DetailField icon={<MapPin />} label="Location">
+                <span className="text-sm">{base?.location || "—"}</span>
               </DetailField>
               <DetailField icon={<CalendarDays />} label="Due Date">
                 <span className="text-sm">{dueDate || "—"}</span>
@@ -953,6 +1062,11 @@ export function TaskDetail() {
                       )}
                     </AttachmentGroup>
                   )}
+                  {uploadError && (
+                    <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      Upload gagal: {uploadError}
+                    </p>
+                  )}
                 </div>
               </DetailField>
             </div>
@@ -960,19 +1074,22 @@ export function TaskDetail() {
         </aside>
       </div>
 
-      {/* Edit Task — popup sama persis kayak Create Task */}
+      {/* Edit — popup sama persis kayak Create Task */}
       <TaskFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
-        dialogTitle="Edit Task"
+        dialogTitle="Edit"
         dialogDescription="Ubah task — form yang sama seperti create task."
         submitLabel="Simpan"
         showAssignee={false}
         showTeam={false}
         initial={{
           title,
+          description: base.description,
           priority,
           dueISO: dmyToISO(dueDate),
+          plant: base.plant,
+          location: base.location,
           checklist: subTasks,
         }}
         onSubmit={async (v) => {
@@ -984,23 +1101,27 @@ export function TaskDetail() {
           setSubTasks(nextChecklist);
           await updateWork(base.id, {
             title: v.title,
+            description: v.description,
             priority: v.priority,
             dueDate: nextDue,
+            plant: v.plant,
+            location: v.location,
           });
           await replaceChecklist(
             base.id,
             nextChecklist.map((s) => ({ id: s.id, label: s.title, done: s.done }))
           );
+          await refreshChecklist();
+          await reload();
           await logActivity("work", base.id, "edited task", currentUser?.id ?? null);
-          reload();
         }}
       />
 
-      {/* Complete Task — checklist wajib selesai, attachment dianjurkan (opsional) */}
+      {/* Complete — checklist wajib selesai, attachment dianjurkan (opsional) */}
       <Dialog open={completeOpen} onOpenChange={setCompleteOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Complete Task</DialogTitle>
+            <DialogTitle>Complete</DialogTitle>
             <DialogDescription>
               {subTasks.length > 0 && subTasks.some((s) => !s.done)
                 ? "Selesaikan semua checklist terlebih dahulu."
@@ -1051,7 +1172,7 @@ export function TaskDetail() {
             </Button>
             {!(subTasks.length > 0 && subTasks.some((s) => !s.done)) && (
               <Button onClick={completeTask}>
-                Complete Task
+                Complete
               </Button>
             )}
           </DialogFooter>
@@ -1060,6 +1181,49 @@ export function TaskDetail() {
 
       {/* Preview attachment */}
       <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
+
+      {/* Cancel — konfirmasi */}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel</DialogTitle>
+            <DialogDescription>
+              Yakin ingin membatalkan task ini? Task akan ditandai Cancelled.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelOpen(false)}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={cancelTask}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete — konfirmasi */}
+      <Dialog open={deleteOpen} onOpenChange={(o) => { if (!o) setDeleteError(null); setDeleteOpen(o); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete</DialogTitle>
+            <DialogDescription>
+              Yakin ingin menghapus task ini? Tindakan ini tidak bisa dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={deleteTask}>
+              Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add assignees popup */}
       <Dialog open={assigneeDialogOpen} onOpenChange={setAssigneeDialogOpen}>

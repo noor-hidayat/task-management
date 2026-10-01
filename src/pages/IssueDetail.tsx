@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   AlignLeft,
+  Ban,
   CalendarDays,
   CheckCircle2,
   ChevronDown,
@@ -21,12 +22,14 @@ import {
   RotateCcw,
   Search,
   Send,
+  Trash2,
   Users,
   X,
 } from "lucide-react";
 
 import { IssueStatusBadge, PriorityBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Attachment,
   AttachmentAction,
@@ -60,18 +63,27 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
+import { sanitizeRichHtml, stripChecklist } from "@/components/rich-text-editor";
+import { RichTextEditor } from "@/components/rich-text-editor";
+import { DatePicker } from "@/components/ui/date-picker";
+import { TimePicker } from "@/components/ui/time-picker";
+
 import { dmyToISO, toDMY } from "@/components/task-form-dialog";
 import { avatarColor, initials } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
-import { useIssues, useUsers } from "@/hooks/useSupabaseLists";
-import { updateIssue } from "@/lib/api/issues";
+import { useUsers } from "@/hooks/useSupabaseLists";
+import { useIssue } from "@/hooks/useIssue";
+import { format } from "date-fns";
+import { updateIssue, deleteIssue } from "@/lib/api/issues";
 import { addComment } from "@/lib/api/related";
+import { notifyMentions, pushNotification } from "@/lib/api/notifications";
 import { logActivity } from "@/lib/api/works";
 import { listProfiles } from "@/lib/api/profiles";
 import { deleteAttachment, fetchAttachmentObjectUrl, uploadAttachment } from "@/lib/api/attachments";
@@ -171,13 +183,8 @@ function SectionTitle({
 export function IssueDetail() {
   const { number } = useParams();
   const { user: currentUser } = useAuth();
-  const { data: issues, reload } = useIssues();
   const { data: users } = useUsers();
-
-  const issue: Issue | undefined = useMemo(
-    () => issues.find((i) => i.number === number),
-    [issues, number]
-  );
+  const { data: issue, loading: issuesLoading, reload } = useIssue(number);
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
@@ -185,11 +192,20 @@ export function IssueDetail() {
   }, [number]);
 
   const [editOpen, setEditOpen] = useState(false);
+  const [startOpen, setStartOpen] = useState(false);
+  const [startDateDraft, setStartDateDraft] = useState("");
+  const [startTimeDraft, setStartTimeDraft] = useState("");
   const [closeOpen, setCloseOpen] = useState(false);
   const [closeDraft, setCloseDraft] = useState("");
+  const [endDateDraft, setEndDateDraft] = useState("");
+  const [endTimeDraft, setEndTimeDraft] = useState("");
   const [holdOpen, setHoldOpen] = useState(false);
   const [holdDraft, setHoldDraft] = useState("");
   const [assigneeOpen, setAssigneeOpen] = useState(false);
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const navigate = useNavigate();
   const [dialogAssignees, setDialogAssignees] = useState<string[]>([]);
   const [pickerQuery, setPickerQuery] = useState("");
   const [assigneeComment, setAssigneeComment] = useState("");
@@ -197,6 +213,7 @@ export function IssueDetail() {
 
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
   useEffect(() => {
     setAttachments(toAttachmentItems(issue?.evidences ?? []));
   }, [issue?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -217,13 +234,61 @@ export function IssueDetail() {
     [dialogAssignees, pickerNormalized, users]
   );
 
-  if (!issue) {
+  if (issuesLoading || !issue) {
     return (
-      <div className="flex flex-col items-start gap-4">
-        <Button variant="ghost" size="sm" asChild>
-          <Link to="/issues"><MoveLeft className="h-4 w-4" /> Kembali ke Issues</Link>
-        </Button>
-        <p className="text-sm text-muted-foreground">Issue tidak ditemukan.</p>
+      <div className="flex flex-col gap-6 lg:h-[calc(100svh-5.5rem)]">
+        {/* Breadcrumb skeleton */}
+        <div className="flex shrink-0 items-center gap-2">
+          <Skeleton className="h-8 w-8 rounded-md" />
+          <Skeleton className="h-4 w-32" />
+        </div>
+
+        {/* Main + Sidebar layout */}
+        <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-6">
+          {/* Main content skeleton */}
+          <main className="min-w-0 flex-1 space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-start justify-between gap-3">
+                <Skeleton className="h-7 w-96" />
+                <Skeleton className="h-9 w-24" />
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-24" />
+              <Skeleton className="h-32 w-full rounded-lg" />
+            </div>
+
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-32" />
+              <Skeleton className="h-24 w-full rounded-lg" />
+            </div>
+
+            <div className="space-y-3">
+              <Skeleton className="h-5 w-28" />
+              <div className="space-y-2">
+                <Skeleton className="h-20 w-full rounded-lg" />
+                <Skeleton className="h-20 w-full rounded-lg" />
+              </div>
+            </div>
+          </main>
+
+          {/* Sidebar skeleton */}
+          <aside className="w-full space-y-4 lg:w-80 lg:shrink-0">
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-4 w-20" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-4 w-24" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+            <div className="space-y-3 rounded-xl border p-4">
+              <Skeleton className="h-4 w-28" />
+              <Skeleton className="h-8 w-full" />
+            </div>
+          </aside>
+        </div>
       </div>
     );
   }
@@ -232,15 +297,40 @@ export function IssueDetail() {
   const comments: Comment[] = issue.comments ?? [];
   const actorId = currentUser?.id ?? "";
 
+  const openStartDialog = () => {
+    const iso = issue.startDateTimeISO || new Date().toISOString();
+    const d = new Date(iso);
+    setStartDateDraft(format(d, "yyyy-MM-dd"));
+    setStartTimeDraft(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`);
+    setStartOpen(true);
+  };
+
+  const confirmStart = async () => {
+    if (!startDateDraft || !startTimeDraft) return;
+    const [h, m, s] = startTimeDraft.split(":").map(Number);
+    const combined = new Date(`${startDateDraft}T00:00:00`);
+    combined.setHours(h, m, s || 0);
+    await updateIssue(issue.id, { status: "in_progress", startDatetime: combined.toISOString() });
+    reload();
+    setStartOpen(false);
+  };
+
   const openCloseDialog = () => {
     setCloseDraft(issue.resolution ?? "");
+    const iso = issue.endDateTimeISO || new Date().toISOString();
+    const d = new Date(iso);
+    setEndDateDraft(format(d, "yyyy-MM-dd"));
+    setEndTimeDraft(`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}:${String(d.getSeconds()).padStart(2, "0")}`);
     setCloseOpen(true);
   };
 
   const confirmClose = async () => {
     const resolution = closeDraft.trim();
-    if (!resolution) return;
-    await updateIssue(issue.id, { status: "closed", resolution, closedById: actorId || null });
+    if (!resolution || !endDateDraft || !endTimeDraft) return;
+    const [h, m, s] = endTimeDraft.split(":").map(Number);
+    const combined = new Date(`${endDateDraft}T00:00:00`);
+    combined.setHours(h, m, s || 0);
+    await updateIssue(issue.id, { status: "closed", resolution, endDatetime: combined.toISOString() });
     reload();
     setCloseOpen(false);
   };
@@ -268,9 +358,21 @@ export function IssueDetail() {
     reload();
   };
 
-  const startIssue = async () => {
-    await updateIssue(issue.id, { status: "in_progress" });
+  const cancelIssue = async () => {
+    await updateIssue(issue.id, { cancelled: true });
     reload();
+    setCancelOpen(false);
+  };
+
+  const confirmDeleteIssue = async () => {
+    setDeleteError(null);
+    try {
+      await deleteIssue(issue.id);
+      setDeleteOpen(false);
+      navigate("/issues");
+    } catch (e) {
+      setDeleteError(e instanceof Error ? e.message : "Gagal menghapus issue");
+    }
   };
 
   const assignees: string[] =
@@ -309,6 +411,7 @@ export function IssueDetail() {
     const assigneeId = profiles.find((u) => u.name === v.assignedTo)?.id;
     const patch: Parameters<typeof updateIssue>[1] = {
       title: v.title,
+      description: v.description,
       priority: v.priority,
       dueDate: toDMY(v.dueISO) || issue.dueDate,
       plant: v.plant,
@@ -337,6 +440,19 @@ export function IssueDetail() {
       if (parts.length > 0) {
         await logActivity("issue", issue.id, parts.join("; "), actorId);
       }
+      for (const name of added) {
+        if (name === currentUser?.name) continue;
+        const target = users.find((u) => u.name === name);
+        if (!target) continue;
+        await pushNotification({
+          type: "assignment",
+          title: "Issue baru ditugaskan",
+          message: issue.title,
+          fromId: currentUser?.id ?? null,
+          forUserId: target.id,
+          link: `/issues/${issue.number}`,
+        });
+      }
     }
     if (assigneeComment.trim()) {
       await addComment("issue", issue.id, actorId, assigneeComment.trim());
@@ -350,30 +466,35 @@ export function IssueDetail() {
 
   const onPickFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
-    const uploaded: AttachmentItem[] = [];
-    for (const [idx, f] of Array.from(files).entries()) {
-      const res = await uploadAttachment("issue", issue.id, issue.number, f);
-      uploaded.push({
-        id: `${res.attachmentId}-${idx}`,
-        name: res.fileName,
-        meta: `${res.fileSize} • ${currentUser?.name ?? "—"}`,
-        kind: f.type.startsWith("image/") ? "image" : "file",
-        mime: res.fileType,
-        driveFileId: res.driveFileId,
-      });
+    setUploadError(null);
+    try {
+      const uploaded: AttachmentItem[] = [];
+      for (const [idx, f] of Array.from(files).entries()) {
+        const res = await uploadAttachment("issue", issue.id, issue.number, f);
+        uploaded.push({
+          id: `${res.attachmentId}-${idx}`,
+          name: res.fileName,
+          meta: `${res.fileSize} • ${currentUser?.name ?? "—"}`,
+          kind: f.type.startsWith("image/") ? "image" : "file",
+          mime: res.fileType,
+          driveFileId: res.driveFileId,
+        });
+      }
+      setAttachments((prev) => [...prev, ...uploaded]);
+      if (uploaded.length > 0) {
+        await logActivity(
+          "issue",
+          issue.id,
+          uploaded.length === 1
+            ? `added attachment (${uploaded[0].name})`
+            : `added ${uploaded.length} attachments`,
+          actorId
+        );
+      }
+      reload();
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : "Upload gagal");
     }
-    setAttachments((prev) => [...prev, ...uploaded]);
-    if (uploaded.length > 0) {
-      await logActivity(
-        "issue",
-        issue.id,
-        uploaded.length === 1
-          ? `added attachment (${uploaded[0].name})`
-          : `added ${uploaded.length} attachments`,
-        actorId
-      );
-    }
-    reload();
   };
 
   const downloadItem = async (a: AttachmentItem) => {
@@ -416,8 +537,17 @@ export function IssueDetail() {
     const clean = draft.trim();
     if (!clean) return;
     await addComment("issue", issue.id, actorId, clean);
+    // Kirim notifikasi mention ke setiap user yang disebut (@Nama), kecuali diri sendiri.
+    await notifyMentions({
+      content: clean,
+      users,
+      fromId: currentUser?.id ?? null,
+      fromName: currentUser?.name,
+      title: "Anda disebut dalam issue",
+      message: issue.title,
+      link: `/issues/${issue.number}`,
+    });
     setDraft("");
-    reload();
   };
 
   return (
@@ -453,8 +583,11 @@ export function IssueDetail() {
                 <h3 className="truncate text-xl font-bold leading-tight tracking-tight">
                   {issue.title || "Untitled issue"}
                 </h3>
+                <IssueStatusBadge status={issue.cancelled ? "cancelled" : issue.status} />
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {(currentUser?.role === "admin" ||
+                  (currentUser?.name ? assignees.includes(currentUser.name) : false)) && (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm">
@@ -464,20 +597,20 @@ export function IssueDetail() {
                   <DropdownMenuContent align="end">
                     {isClosed ? (
                       <DropdownMenuItem onClick={reopen}>
-                        <RotateCcw className="h-4 w-4" /> Reopen Issue
+                        <RotateCcw className="h-4 w-4" /> Reopen
                       </DropdownMenuItem>
                     ) : (
                       <>
                         <DropdownMenuItem onClick={() => setEditOpen(true)}>
-                          <Pencil className="h-4 w-4" /> Edit Issue
+                          <Pencil className="h-4 w-4" /> Edit
                         </DropdownMenuItem>
                         {issue.status === "open" ? (
-                          <DropdownMenuItem onClick={startIssue}>
-                            <Play className="h-4 w-4" /> Start Issue
+                          <DropdownMenuItem onClick={openStartDialog}>
+                            <Play className="h-4 w-4" /> Start
                           </DropdownMenuItem>
                         ) : issue.status === "on_hold" ? (
                           <DropdownMenuItem onClick={resumeIssue}>
-                            <Play className="h-4 w-4" /> Resume Issue
+                            <Play className="h-4 w-4" /> Resume
                           </DropdownMenuItem>
                         ) : (
                           <>
@@ -489,24 +622,72 @@ export function IssueDetail() {
                             </DropdownMenuItem>
                           </>
                         )}
-
+                        {!issue.cancelled && (
+                          <DropdownMenuItem onClick={() => setCancelOpen(true)}>
+                            <Ban className="h-4 w-4" /> Cancel
+                          </DropdownMenuItem>
+                        )}
                       </>
                     )}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onClick={() => setDeleteOpen(true)}
+                    >
+                      <Trash2 className="h-4 w-4" /> Delete
+                    </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                )}
               </div>
             </div>
           </section>
+
+          {/* Description */}
+          <section className="space-y-3">
+            <SectionTitle icon={<FileText />} title="Description" />
+            <div
+              className="rich-content resize-none text-sm bg-muted/30 rounded-lg border border-input px-3 py-2 min-h-[14rem] font-sans whitespace-pre-wrap"
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stripChecklist(issue?.description || "")) }}
+            />
+          </section>
+          <div className="border-t" />
 
           {/* Resolution — hanya tampil setelah issue closed */}
           {isClosed && (
           <section className="space-y-3">
             <SectionTitle icon={<FileText />} title="Resolution" />
-            <div className="space-y-1">
-              <p className="text-sm">{issue.resolution || "—"}</p>
-              <p className="text-xs text-muted-foreground">
-                Closed by {issue.closedBy ?? "—"}{issue.closedAt ? ` · ${issue.closedAt}` : ""}
-              </p>
+            <div
+              className="rich-content text-sm bg-muted/30 rounded-lg border border-input px-3 py-2 font-sans"
+              dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(issue.resolution || "") }}
+            />
+          </section>
+          )}
+
+          {/* Start/End DateTime Table — tampil jika ada salah satu */}
+          {(issue.startDateTime || issue.endDateTime) && (
+          <section className="space-y-3">
+            <div className="rounded-lg border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b bg-muted/50">
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">Start</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">End</th>
+                    <th className="px-3 py-2 text-left font-medium text-muted-foreground">Time in Minute</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td className="px-3 py-2">{issue.startDateTime || "—"}</td>
+                    <td className="px-3 py-2">{issue.endDateTime || "—"}</td>
+                    <td className="px-3 py-2">
+                      {issue.startDateTimeISO && issue.endDateTimeISO
+                        ? Math.round((new Date(issue.endDateTimeISO).getTime() - new Date(issue.startDateTimeISO).getTime()) / 60000)
+                        : "—"}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </section>
           )}
@@ -626,9 +807,6 @@ export function IssueDetail() {
                   <span className="text-sm text-muted-foreground">—</span>
                 )}
               </DetailField>
-              <DetailField icon={<CircleDot />} label="Status">
-                <IssueStatusBadge status={issue.status} />
-              </DetailField>
               {issue.status === "on_hold" && issue.holdReason && (
                 <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950">
                   <p className="text-xs font-medium text-amber-800 dark:text-amber-200">On Hold Reason</p>
@@ -711,6 +889,11 @@ export function IssueDetail() {
                       )}
                     </AttachmentGroup>
                   )}
+                  {uploadError && (
+                    <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                      Upload gagal: {uploadError}
+                    </p>
+                  )}
                 </div>
               </DetailField>
             </div>
@@ -718,15 +901,16 @@ export function IssueDetail() {
         </aside>
       </div>
 
-      {/* Edit Issue */}
+      {/* Edit */}
       <IssueFormDialog
         open={editOpen}
         onOpenChange={setEditOpen}
-        dialogTitle="Edit Issue"
+        dialogTitle="Edit"
         dialogDescription="Ubah issue — form yang sama seperti report issue."
         submitLabel="Simpan"
         initial={{
           title: issue.title,
+          description: issue.description,
           priority: issue.priority,
           assignedTo: issue.assignedTo,
           reportedTeamId: issue.reportedTeamId,
@@ -738,37 +922,95 @@ export function IssueDetail() {
         onSubmit={submitEdit}
       />
 
-      {/* Close Issue — wajib isi resolution */}
-      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
+      {/* Start — wajib isi tanggal & jam mulai */}
+      <Dialog open={startOpen} onOpenChange={setStartOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>Close Issue</DialogTitle>
+            <DialogTitle>Start Issue</DialogTitle>
             <DialogDescription>
-              Tulis resolution sebelum menutup #{issue.number}.
+              Tentukan tanggal & jam mulai #{issue.number}.
             </DialogDescription>
           </DialogHeader>
           <FieldGroup>
             <Field>
-              <FieldLabel htmlFor="issue-resolution">Resolution</FieldLabel>
-              <Textarea
-                id="issue-resolution"
-                value={closeDraft}
-                onChange={(e) => setCloseDraft(e.target.value)}
-                placeholder="cth: Fitting dikencangkan, tekanan kembali normal…"
-                rows={4}
-                className="resize-y"
-                autoFocus
+              <FieldLabel htmlFor="issue-start-date">Start Date</FieldLabel>
+              <DatePicker
+                id="issue-start-date"
+                value={startDateDraft}
+                onChange={setStartDateDraft}
+              />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor="issue-start-time">Start Time</FieldLabel>
+              <TimePicker
+                id="issue-start-time"
+                value={startTimeDraft}
+                onChange={setStartTimeDraft}
               />
             </Field>
           </FieldGroup>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setCloseOpen(false)}>
+            <Button variant="outline" onClick={() => setStartOpen(false)}>
               Batal
             </Button>
-            <Button onClick={confirmClose} disabled={!closeDraft.trim()}>
-              Close Issue
+            <Button onClick={confirmStart} disabled={!startDateDraft || !startTimeDraft}>
+              Start
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Close — wajib isi resolution + tanggal & jam selesai */}
+      <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
+        <DialogContent className="max-w-4xl max-h-[90svh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Close Issue</DialogTitle>
+            <DialogDescription>
+              Tulis resolution dan tentukan waktu selesai #{issue.number}.
+            </DialogDescription>
+          </DialogHeader>
+          <form className="grid gap-4 py-2 md:grid-cols-[1fr_300px]">
+            {/* Kiri: Resolution (Rich Text) */}
+            <div className="grid gap-4">
+              <Field>
+                <FieldLabel>Resolution</FieldLabel>
+                <RichTextEditor
+                  value={closeDraft}
+                  onChange={setCloseDraft}
+                  placeholder="cth: Fitting dikencangkan, tekanan kembali normal…"
+                  users={users.map((u) => u.name)}
+                  height={300}
+                />
+              </Field>
+            </div>
+            {/* Kanan: End Date & Time */}
+            <div className="grid content-start gap-4 md:border-l md:pl-4">
+              <Field>
+                <FieldLabel htmlFor="issue-end-date">End Date</FieldLabel>
+                <DatePicker
+                  id="issue-end-date"
+                  value={endDateDraft}
+                  onChange={setEndDateDraft}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="issue-end-time">End Time</FieldLabel>
+                <TimePicker
+                  id="issue-end-time"
+                  value={endTimeDraft}
+                  onChange={setEndTimeDraft}
+                />
+              </Field>
+            </div>
+            <DialogFooter className="md:col-span-2">
+              <Button variant="outline" onClick={() => setCloseOpen(false)}>
+                Batal
+              </Button>
+              <Button onClick={confirmClose} disabled={!closeDraft.trim() || !endDateDraft || !endTimeDraft}>
+                Close
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 
@@ -808,6 +1050,49 @@ export function IssueDetail() {
 
       {/* Preview attachment */}
       <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
+
+      {/* Cancel — konfirmasi */}
+      <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancel</DialogTitle>
+            <DialogDescription>
+              Yakin ingin membatalkan issue ini? Issue akan ditandai Cancelled.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCancelOpen(false)}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={cancelIssue}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete — konfirmasi */}
+      <Dialog open={deleteOpen} onOpenChange={(o) => { if (!o) setDeleteError(null); setDeleteOpen(o); }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Delete</DialogTitle>
+            <DialogDescription>
+              Yakin ingin menghapus issue ini? Tindakan ini tidak bisa dibatalkan.
+            </DialogDescription>
+          </DialogHeader>
+          {deleteError && (
+            <p className="text-sm text-destructive">{deleteError}</p>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDeleteOpen(false)}>
+              Batal
+            </Button>
+            <Button variant="destructive" onClick={confirmDeleteIssue}>
+              Hapus
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Manage assignees (multi-user) */}
       <Dialog open={assigneeOpen} onOpenChange={setAssigneeOpen}>

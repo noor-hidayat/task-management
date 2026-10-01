@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { User as UserIcon, Lock, Eye, EyeOff } from "lucide-react";
+import { User as UserIcon, Lock, Eye, EyeOff, CheckSquare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -32,15 +32,11 @@ export function Login() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-neutral-50 dark:bg-neutral-950 p-4">
       <div className="w-full max-w-sm">
-        <div className="mb-8 text-center">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary/10 mb-4">
-            <svg className="w-8 h-8 text-primary" fill="currentColor" viewBox="0 0 24 24">
-              <path d="M9 11l3 3L22 4" />
-              <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" />
-            </svg>
+        <div className="mb-8 flex flex-col items-center text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
+            <CheckSquare className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">TaskMe</h1>
-          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">Masuk ke akun Anda</p>
+          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Team Work</h1>
         </div>
 
         <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 shadow-sm">
@@ -115,16 +111,10 @@ export function Login() {
               )}
             </Button>
           </form>
-
-          <div className="mt-6 pt-4 border-t border-neutral-200 dark:border-neutral-800 text-center">
-            <p className="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-              Demo: username <span className="font-medium">admin</span> · password <span className="font-medium">admin123</span>
-            </p>
-          </div>
         </div>
 
         <p className="mt-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
-          &copy; 2026 TaskMe
+          &copy; 2026 Team Work
         </p>
       </div>
     </div>

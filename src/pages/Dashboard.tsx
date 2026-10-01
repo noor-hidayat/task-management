@@ -7,6 +7,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { StatusBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -43,6 +44,38 @@ const STATUS_COLORS: Record<WorkStatus, string> = {
   completed: "#22c55e",
 };
 
+const MONTHS: Record<string, number> = {
+  Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+  Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
+};
+
+/** Parse "26 Sep 2026[ 14:45]" (format DMY aplikasi) → Date | null. */
+function parseDMY(value: string | undefined | null): Date | null {
+  if (!value) return null;
+  const m = value.trim().match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
+  if (!m) {
+    const d = new Date(value);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
+  const month = MONTHS[m[2]];
+  if (month === undefined) return null;
+  return new Date(Number(m[3]), month, Number(m[1]), m[4] ? Number(m[4]) : 0, m[5] ? Number(m[5]) : 0);
+}
+
+function startOfDay(d: Date) {
+  const c = new Date(d);
+  c.setHours(0, 0, 0, 0);
+  return c;
+}
+
+/** Overdue beneran: belum selesai, tidak cancelled, dueDate < hari ini. */
+function isOverdueTask(t: WorkItem, today: Date) {
+  if (t.cancelled || t.status === "completed") return false;
+  const due = parseDMY(t.dueDate);
+  if (!due) return false;
+  return startOfDay(due) < startOfDay(today);
+}
+
 /** Simple donut SVG */
 function DonutChart({
   data,
@@ -53,14 +86,15 @@ function DonutChart({
   size?: number;
   strokeWidth?: number;
 }) {
-  const total = data.reduce((s, d) => s + d.value, 0) || 1;
+  const total = data.reduce((s, d) => s + d.value, 0);
+  const denom = total || 1; // hanya untuk matematika render, teks tetap tampilkan total asli
   const r = (size - strokeWidth * 2) / 2;
   const c = size / 2;
   const circ = 2 * Math.PI * r;
 
   let offset = 0;
   const segments = data.map((d) => {
-    const pct = d.value / total;
+    const pct = d.value / denom;
     const len = circ * pct;
     const seg = {
       ...d,
@@ -189,11 +223,12 @@ const statConfig = [
 
 function ReportStatCards({ tasks }: { tasks: WorkItem[] }) {
   const active = tasks.filter((t) => !t.cancelled);
+  const today = new Date();
   const stats = {
     total: active.length,
     completed: active.filter((t) => t.status === "completed").length,
     inProgress: active.filter((t) => t.status === "in_progress").length,
-    overdue: active.filter((t) => t.status !== "completed" && !t.cancelled).length, // simplified
+    overdue: active.filter((t) => isOverdueTask(t, today)).length,
   };
 
   return (
@@ -230,9 +265,23 @@ function CompletionSection({ tasks }: { tasks: WorkItem[] }) {
     color: STATUS_COLORS[s],
   }));
 
-  // Simulate trend: last 7 days of completed tasks
-  const trendPoints = [3, 5, 4, 7, 6, 8, donutData.find((d) => d.label === "Completed")?.value ?? 0];
-  const trendLabels = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  // Tren real: jumlah task completed per hari selama 7 hari terakhir (berdasar updatedAt).
+  const DAY_NAMES = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
+  const days: Date[] = Array.from({ length: 7 }, (_, i) => {
+    const d = startOfDay(new Date());
+    d.setDate(d.getDate() - (6 - i));
+    return d;
+  });
+  const trendPoints = days.map((day) => {
+    const next = new Date(day);
+    next.setDate(next.getDate() + 1);
+    return active.filter((t) => {
+      if (t.status !== "completed") return false;
+      const done = parseDMY(t.updatedAt);
+      return !!done && done.getTime() >= day.getTime() && done.getTime() < next.getTime();
+    }).length;
+  });
+  const trendLabels = days.map((d) => DAY_NAMES[d.getDay()]);
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
@@ -335,10 +384,15 @@ function OperatorTable({ tasks, allUsers }: { tasks: WorkItem[]; allUsers: User[
 /* ------------------------------------------------------------------ */
 
 function OverdueTasksTable({ tasks }: { tasks: WorkItem[] }) {
-  // Simplified: treat non-completed, non-cancelled as potential overdue for demo
-  const overdue = tasks.filter(
-    (t) => t.status !== "completed" && !t.cancelled
-  ).slice(0, 8); // show up to 8
+  const today = new Date();
+  const overdue = tasks
+    .filter((t) => isOverdueTask(t, today))
+    .sort((a, b) => {
+      const da = parseDMY(a.dueDate)?.getTime() ?? 0;
+      const db = parseDMY(b.dueDate)?.getTime() ?? 0;
+      return da - db; // paling lama overdue di atas
+    })
+    .slice(0, 8); // show up to 8
 
   return (
     <Card>
@@ -398,14 +452,14 @@ function OverdueTasksTable({ tasks }: { tasks: WorkItem[] }) {
 /* ------------------------------------------------------------------ */
 
 export function Dashboard() {
-  const { data: tasks } = useWorks();
-  const { data: users } = useUsers();
+  const { data: tasks, loading: tasksLoading } = useWorks();
+  const { data: users, loading: usersLoading } = useUsers();
+  const isLoading = tasksLoading || usersLoading;
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Report"
-        description="Ringkasan dan analisis task management"
         actions={
           <Button asChild>
             <Link to="/my-work"><Plus className="mr-2 h-4 w-4" />My Work</Link>
@@ -413,6 +467,10 @@ export function Dashboard() {
         }
       />
 
+      {isLoading && <PageSkeleton variant="stats" />}
+
+      {!isLoading && (
+        <>
       {/* ── Stats ── */}
       <ReportStatCards tasks={tasks} />
 
@@ -430,6 +488,8 @@ export function Dashboard() {
 
       {/* ── Overdue Tasks ── */}
       <OverdueTasksTable tasks={tasks} />
+        </>
+      )}
     </div>
   );
 }

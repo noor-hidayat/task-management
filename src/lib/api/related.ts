@@ -1,6 +1,7 @@
 import { supabase } from "@/lib/supabase";
 import type { Activity, Comment, Evidence } from "@/types";
 import { formatBytes, nameOf, type NameMap } from "./mappers";
+import { formatDateTime } from "@/lib/format";
 
 type OwnerKind = "work" | "issue";
 
@@ -37,7 +38,7 @@ export async function fetchAttachmentMap(
       fileType: r.file_type ?? "",
       fileSize: r.file_size ?? "",
       uploadedBy: nameOf(names, r.uploaded_by, "—"),
-      uploadedAt: r.created_at,
+      uploadedAt: formatDateTime(r.created_at),
       // URL unduh via Edge Function (JWT dipasang saat fetch).
       dataUrl: undefined,
       driveFileId: r.drive_file_id,
@@ -70,7 +71,7 @@ export async function fetchActivityMap(
     const list = map.get(r.owner_id) ?? [];
     list.push({
       id: r.id,
-      at: r.at,
+      at: formatDateTime(r.at),
       text: r.text,
       actor: nameOf(names, r.actor_id, "—"),
     });
@@ -104,7 +105,7 @@ export async function fetchCommentMap(
       id: r.id,
       author: nameOf(names, r.author_id, "—"),
       text: r.text,
-      at: r.created_at,
+      at: formatDateTime(r.created_at),
     });
     map.set(r.owner_id, list);
   }

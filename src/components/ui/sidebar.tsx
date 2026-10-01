@@ -10,7 +10,6 @@ import { Separator } from "@/components/ui/separator";
 
 const SIDEBAR_WIDTH = "16rem";
 const SIDEBAR_WIDTH_MOBILE = "18rem";
-const SIDEBAR_KEYBOARD_SHORTCUT = "b";
 
 type SidebarContextValue = {
   state: "expanded" | "collapsed";
@@ -76,20 +75,6 @@ function SidebarProvider({
   const toggleSidebar = React.useCallback(() => {
     return isMobile ? setOpenMobile((v) => !v) : setOpen((v) => !v);
   }, [isMobile, setOpen, setOpenMobile]);
-
-  React.useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (
-        event.key === SIDEBAR_KEYBOARD_SHORTCUT &&
-        (event.metaKey || event.ctrlKey)
-      ) {
-        event.preventDefault();
-        toggleSidebar();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [toggleSidebar]);
 
   const state = open ? "expanded" : "collapsed";
 

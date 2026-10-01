@@ -4,6 +4,7 @@ import { listWorks } from "@/lib/api/works";
 import { listIssues } from "@/lib/api/issues";
 import { listTeams } from "@/lib/api/teams";
 import { listProfiles } from "@/lib/api/profiles";
+import { listLocations, listPlants, type SiteOption } from "@/lib/api/sites";
 import type { Issue, Team, User, WorkItem } from "@/types";
 
 interface AsyncState<T> {
@@ -69,4 +70,12 @@ export function useTeams(): AsyncState<Team[]> {
 
 export function useUsers(): AsyncState<User[]> {
   return useSupabaseList(() => listProfiles(), [] as User[], ["profiles"]);
+}
+
+export function usePlants(): AsyncState<SiteOption[]> {
+  return useSupabaseList(() => listPlants(), [] as SiteOption[], ["plants"]);
+}
+
+export function useLocations(): AsyncState<SiteOption[]> {
+  return useSupabaseList(() => listLocations(), [] as SiteOption[], ["locations"]);
 }

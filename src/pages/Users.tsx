@@ -24,6 +24,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/contexts/AuthContext";
 import { isUsernameTaken, defaultUsername } from "@/lib/api/profiles";
 import { listRoles, type Role } from "@/lib/api/roles";
@@ -156,10 +157,11 @@ function UserFormDialog({
 
 export function Users() {
   const { user: authUser } = useAuth();
-  const { data: userList, reload } = useUsers();
+  const { data: userList, loading: usersLoading, reload } = useUsers();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   if (authUser?.role !== "admin") {
     return (
@@ -186,20 +188,23 @@ export function Users() {
   };
 
   const handleSubmit = async (data: Partial<User> & { password?: string }) => {
-    if (editingUser) {
-      await updateUserAsAdmin(editingUser.id, {
-        name: data.name,
-        username: data.username?.toLowerCase(),
-        role: data.role,
-        password: data.password,
-      });
-    } else {
-      await createUserAsAdmin({
-        name: data.name!,
-        username: data.username!.toLowerCase(),
-        password: data.password!,
-        role: data.role ?? "Member",
-      });
+    setActionError(null);
+    const result = editingUser
+      ? await updateUserAsAdmin(editingUser.id, {
+          name: data.name,
+          username: data.username?.toLowerCase(),
+          role: data.role,
+          password: data.password,
+        })
+      : await createUserAsAdmin({
+          name: data.name!,
+          username: data.username!.toLowerCase(),
+          password: data.password!,
+          role: data.role ?? "Member",
+        });
+    if (result.error) {
+      setActionError(result.error);
+      return; // biarkan dialog terbuka agar bisa dicoba lagi
     }
     setDialogOpen(false);
     reload();
@@ -211,18 +216,21 @@ export function Users() {
   };
 
   const executeDelete = async () => {
-    if (deleteTarget) {
-      await deleteUserAsAdmin(deleteTarget);
-      setDeleteTarget(null);
-      reload();
+    if (!deleteTarget) return;
+    setActionError(null);
+    const { error } = await deleteUserAsAdmin(deleteTarget);
+    if (error) {
+      setActionError(error);
+      return; // biarkan dialog hapus terbuka
     }
+    setDeleteTarget(null);
+    reload();
   };
 
   return (
     <div className="space-y-6">
       <PageHeader
         title="Manajemen User"
-        description="Kelola user, role, dan akses — khusus administrator"
         actions={
           <Button onClick={openAddDialog}>
             <Plus className="h-4 w-4 mr-2" /> Tambah User
@@ -230,6 +238,9 @@ export function Users() {
         }
       />
 
+      {usersLoading ? (
+        <PageSkeleton variant="table" rows={6} columns={4} />
+      ) : (
       <Card>
         <CardHeader>
           <CardTitle>Daftar User ({userList.length})</CardTitle>
@@ -292,6 +303,13 @@ export function Users() {
           </Table>
         </CardContent>
       </Card>
+      )}
+
+      {actionError && (
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+          {actionError}
+        </div>
+      )}
 
       <UserFormDialog
         open={dialogOpen}
@@ -307,6 +325,11 @@ export function Users() {
             <DialogTitle>Hapus User</DialogTitle>
             <DialogDescription>Yakin ingin menghapus user ini? Tindakan ini tidak bisa dibatalkan.</DialogDescription>
           </DialogHeader>
+          {actionError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              {actionError}
+            </p>
+          )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setDeleteTarget(null)}>Batal</Button>
             <Button variant="destructive" onClick={executeDelete}>Hapus</Button>

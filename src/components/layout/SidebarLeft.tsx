@@ -15,9 +15,8 @@ import {
   SidebarContent,
   SidebarFooter,
   SidebarHeader,
-  SidebarRail,
 } from "@/components/ui/sidebar";
-import { TeamSwitcher } from "@/components/layout/TeamSwitcher";
+import { AppLogo } from "@/components/layout/AppLogo";
 import { NavMain } from "@/components/layout/NavMain";
 import { NavSecondary } from "@/components/layout/NavSecondary";
 import { CreateIssueButton } from "@/components/layout/CreateIssue";
@@ -29,9 +28,9 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
   const isAdmin = user?.role === "admin";
 
   return (
-    <Sidebar className="border-r-0" {...props}>
+    <Sidebar collapsible="offcanvas" className="border-r-0" {...props}>
       <SidebarHeader>
-        <TeamSwitcher />
+        <AppLogo className="px-2 py-3" />
         <div className="px-0 pt-1">
           <CreateIssueButton className="w-full" />
         </div>
@@ -73,7 +72,6 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
           />
         </SidebarContent>
         <SidebarFooter />
-        <SidebarRail />
       </Sidebar>
   );
 }

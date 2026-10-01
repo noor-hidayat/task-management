@@ -7,6 +7,7 @@ import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-d
 import { toDMY, tomorrowISO } from "@/components/task-form-dialog";
 import { useAuth } from "@/contexts/AuthContext";
 import { createIssue } from "@/lib/api/issues";
+import { notifyMentions, pushNotification } from "@/lib/api/notifications";
 import { listProfiles } from "@/lib/api/profiles";
 
 export function CreateIssueButton({ className }: { className?: string }) {
@@ -21,6 +22,7 @@ export function CreateIssueButton({ className }: { className?: string }) {
     const assigneeIds = assignee ? [assignee.id] : [];
     const issue = await createIssue({
       title: v.title,
+      description: v.description,
       priority: v.priority,
       createdById: currentUser.id,
       assigneeIds,
@@ -29,6 +31,26 @@ export function CreateIssueButton({ className }: { className?: string }) {
       plant: v.plant,
       location: v.location,
       dueDate: toDMY(v.dueISO) || toDMY(tomorrowISO()),
+    });
+    if (assignee && assignee.id !== currentUser.id) {
+      await pushNotification({
+        type: "assignment",
+        title: "Issue baru ditugaskan",
+        message: issue.title,
+        fromId: currentUser.id,
+        forUserId: assignee.id,
+        link: `/issues/${issue.number}`,
+      });
+    }
+    // Kirim notifikasi mention
+    await notifyMentions({
+      content: v.description,
+      users: profiles,
+      fromId: currentUser.id,
+      fromName: currentUser.name,
+      title: "Anda disebutkan dalam issue",
+      message: issue.title,
+      link: `/issues/${issue.number}`,
     });
     setOpen(false);
     navigate(`/issues/${issue.number}`);
@@ -43,8 +65,7 @@ export function CreateIssueButton({ className }: { className?: string }) {
       <IssueFormDialog
         open={open}
         onOpenChange={setOpen}
-        dialogTitle="Create Issue"
-        dialogDescription="Laporkan masalah — bisa dilengkapi attachment di halaman detail."
+        dialogTitle="New Issue"
         submitLabel="Create Issue"
         onSubmit={handleCreate}
       />

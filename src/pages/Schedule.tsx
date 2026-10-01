@@ -3,6 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { PageHeader } from "@/components/page-header";
+import { PageSkeleton } from "@/components/page-skeleton";
 import { listSchedule, listShifts, saveScheduleDay, DAYS } from "@/lib/api/schedule";
 import type { ScheduleRow, ShiftDef } from "@/types";
 import { cn } from "@/lib/utils";
@@ -12,6 +13,7 @@ const days = [...DAYS];
 export function Schedule() {
   const [shifts, setShifts] = useState<ShiftDef[]>([]);
   const [rows, setRows] = useState<ScheduleRow[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let active = true;
@@ -25,6 +27,9 @@ export function Schedule() {
         if (!active) return;
         setShifts([]);
         setRows([]);
+      })
+      .finally(() => {
+        if (active) setLoading(false);
       });
     return () => {
       active = false;
@@ -47,9 +52,12 @@ export function Schedule() {
     <div className="space-y-6">
       <PageHeader
         title="Schedule"
-        description="Menentukan current shift, next shift & jadwal shift operator."
       />
 
+      {loading ? (
+        <PageSkeleton variant="schedule" />
+      ) : (
+        <>
       <div className="grid gap-4 sm:grid-cols-3">
         {shifts.map((s) => (
           <Card key={s.id}>
@@ -116,6 +124,8 @@ export function Schedule() {
           </Table>
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }

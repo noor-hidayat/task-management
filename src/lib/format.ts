@@ -18,6 +18,18 @@ export const groupLabel: Record<WorkStatus, string> = {
   completed: "Completed",
 };
 
+/** Status tampilan task: "cancelled" menimpa status dasar. */
+export type WorkDisplayStatus = WorkStatus | "cancelled";
+export function workDisplayStatus(w: { status: WorkStatus; cancelled?: boolean }): WorkDisplayStatus {
+  return w.cancelled ? "cancelled" : w.status;
+}
+
+/** Status tampilan issue: "cancelled" menimpa status dasar. */
+export type IssueDisplayStatus = IssueStatus | "cancelled";
+export function issueDisplayStatus(i: { status: IssueStatus; cancelled?: boolean }): IssueDisplayStatus {
+  return i.cancelled ? "cancelled" : i.status;
+}
+
 export const priorityLabel: Record<Priority, string> = {
   low: "Low",
   medium: "Medium",
@@ -30,6 +42,29 @@ export const issueStatusLabel: Record<IssueStatus, string> = {
   on_hold: "On Hold",
   closed: "Closed",
 };
+
+const MONTHS_SHORT = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Format tanggal/waktu untuk ditampilkan di UI: "26 Sep 2026 14:45".
+ * Menerima ISO string, epoch, atau objek Date. Mengembalikan "—" bila kosong/tidak valid.
+ */
+export function formatDateTime(value: string | number | Date | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  const date = `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+  const time = `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+  return `${date} ${time}`;
+}
+
+/** Format tanggal saja: "26 Sep 2026". */
+export function formatDate(value: string | number | Date | null | undefined): string {
+  if (value === null || value === undefined || value === "") return "—";
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return "—";
+  return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
+}
 
 export function initials(name: string) {
   return name

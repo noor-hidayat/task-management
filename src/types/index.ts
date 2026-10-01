@@ -87,6 +87,8 @@ export interface WorkItem {
   shift: string;
   dueDate: string;
   description: string;
+  plant: string;
+  location: string;
   progress: number;
   evidenceRequired: boolean;
   cancelled?: boolean;
@@ -139,9 +141,13 @@ export interface Issue {
   location: string;
   dueDate: string;
   resolution?: string;
-  closedBy?: string;
   closedAt?: string;
+  startDateTime?: string;
+  endDateTime?: string;
+  startDateTimeISO?: string;
+  endDateTimeISO?: string;
   holdReason?: string;
+  cancelled?: boolean;
   evidences: Evidence[];
   comments?: Comment[];
   createdAt: string;

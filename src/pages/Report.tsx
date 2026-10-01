@@ -478,15 +478,17 @@ export function Report() {
 
   // ── Team workload ──
   const workload = React.useMemo(() => {
-    return teams.map((tm) => {
-      const tmTasks = filteredTasks.filter((t) => t.teamId === tm.id || t.team === tm.name);
-      const tmIssues = filteredIssues.filter((i) => teamIdOfUser(users, i.assignedTo) === tm.id);
-      const total = tmTasks.length + tmIssues.length;
-      const completed = tmTasks.filter(isTaskCompleted).length + tmIssues.filter(isIssueClosed).length;
-      const inProgress = tmTasks.filter((t) => t.status === "in_progress").length + tmIssues.filter((i) => i.status === "in_progress").length;
-      const overdue = tmTasks.filter((t) => isOverdueTask(t, today)).length + tmIssues.filter((i) => isOverdueIssue(i, today)).length;
-      return { team: tm, total, completed, inProgress, overdue };
-    });
+    return teams
+      .map((tm) => {
+        const tmTasks = filteredTasks.filter((t) => t.teamId === tm.id || t.team === tm.name);
+        const tmIssues = filteredIssues.filter((i) => teamIdOfUser(users, i.assignedTo) === tm.id);
+        const total = tmTasks.length + tmIssues.length;
+        const completed = tmTasks.filter(isTaskCompleted).length + tmIssues.filter(isIssueClosed).length;
+        const inProgress = tmTasks.filter((t) => t.status === "in_progress").length + tmIssues.filter((i) => i.status === "in_progress").length;
+        const overdue = tmTasks.filter((t) => isOverdueTask(t, today)).length + tmIssues.filter((i) => isOverdueIssue(i, today)).length;
+        return { team: tm, total, completed, inProgress, overdue };
+      })
+      .sort((a, b) => b.total - a.total);
   }, [filteredTasks, filteredIssues, today, teams, users]);
 
   // ── Issue summary ──
@@ -617,7 +619,6 @@ export function Report() {
       {/* 1. Report Header */}
       <PageHeader
         title="Reports"
-        description="Work performance and activity overview"
         actions={
           <Button variant="outline" size="sm" className="gap-1.5" onClick={handleExport}>
             <Download className="h-4 w-4" />

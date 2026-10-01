@@ -1,20 +1,12 @@
-import { Link, Outlet, useLocation } from "react-router-dom";
+import { Outlet, useNavigate } from "react-router-dom";
 import { Bell, Search, Clock, User, MessageSquare, AlertTriangle, Moon, Sun, ArrowRightLeft } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import * as React from "react";
 
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
   SidebarProvider,
-  SidebarTrigger,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
 import {
@@ -42,25 +34,9 @@ const notificationIcon: Record<string, React.ReactNode> = {
   handover: <ArrowRightLeft className="h-4 w-4" />,
 };
 
-const crumbs: Record<string, string> = {
-  "/": "Dashboard",
-  "/my-work": "My Work",
-  "/tasks": "Tasks",
-  "/issues": "Issues",
-  "/teams": "Teams",
-  "/settings": "Settings",
-  "/users": "User Management",
-};
-
-function breadcrumbFor(pathname: string) {
-  if (pathname.startsWith("/tasks/")) return "Task Detail";
-  if (pathname.startsWith("/issues/")) return "Issue Detail";
-  return crumbs[pathname] ?? "Team Work";
-}
-
 export function AppLayout() {
-  const { pathname } = useLocation();
   const { user } = useAuth();
+  const navigate = useNavigate();
   const [searchOpen, setSearchOpen] = React.useState(false);
   const { toggle, isDark } = useTheme();
   const { data: allNotifications, markRead, markAllRead } = useNotifications();
@@ -78,19 +54,6 @@ export function AppLayout() {
       <SidebarInset className="h-svh flex flex-col overflow-hidden">
         <header className="bg-background sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b">
           <div className="flex flex-1 items-center gap-2 px-3">
-            <SidebarTrigger />
-            <Separator orientation="vertical" className="mr-2 h-4" />
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbPage className="line-clamp-1">
-                    <Link to="/">{breadcrumbFor(pathname)}</Link>
-                  </BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-          </div>
-          <div className="flex items-center gap-2 px-3">
             <button
               onClick={() => setSearchOpen(true)}
               className="hidden sm:flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 transition-colors w-56 lg:w-72"
@@ -107,6 +70,8 @@ export function AppLayout() {
             >
               <Search className="h-[18px] w-[18px]" />
             </Button>
+          </div>
+          <div className="flex items-center gap-2 px-3">
             <Button
               variant="ghost"
               size="icon"
@@ -154,18 +119,18 @@ export function AppLayout() {
                     </p>
                   ) : (
                     notifications.map((notif) => (
-                      <Link
+                      <DropdownMenuItem
                         key={notif.id}
-                        to={notif.link}
-                        className="block"
-                        onClick={() => markRead(notif.id)}
+                        className={cn(
+                          "flex flex-col items-start gap-2 px-4 py-3 cursor-pointer",
+                          !notif.read && "bg-muted/40"
+                        )}
+                        onSelect={() => {
+                          console.log("[notif-click] link:", notif.link);
+                          void markRead(notif.id);
+                          if (notif.link) navigate(notif.link);
+                        }}
                       >
-                        <DropdownMenuItem
-                          className={cn(
-                            "flex flex-col items-start gap-2 px-4 py-3 cursor-pointer",
-                            !notif.read && "bg-muted/40"
-                          )}
-                        >
                           <div className="flex w-full items-start gap-3">
                             <div
                               className={cn(
@@ -200,7 +165,6 @@ export function AppLayout() {
                             </div>
                           </div>
                         </DropdownMenuItem>
-                      </Link>
                     ))
                   )}
                 </div>
