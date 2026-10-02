@@ -112,18 +112,18 @@ function UserFormDialog({
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>{isEditing ? "Edit User" : "Tambah User"}</DialogTitle>
-          <DialogDescription>{isEditing ? "Ubah data user" : "Buat user baru"}</DialogDescription>
+          <DialogTitle>{isEditing ? "Edit User" : "Add User"}</DialogTitle>
+          <DialogDescription>{isEditing ? "Update user data" : "Create new user"}</DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="grid gap-4 py-2">
           <div className="grid gap-2">
-            <Label htmlFor="su-name">Nama</Label>
-            <Input id="su-name" value={name} onChange={(e) => handleNameChange(e.target.value)} placeholder="cth: Operator C" autoFocus />
+            <Label htmlFor="su-name">Name</Label>
+            <Input id="su-name" value={name} onChange={(e) => handleNameChange(e.target.value)} placeholder="e.g.: Operator C" autoFocus />
           </div>
           <div className="grid gap-2">
             <Label htmlFor="su-username">Username</Label>
-            <Input id="su-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} placeholder="cth: operator_c" maxLength={20} />
-            {taken && <p className="text-xs text-destructive">Username sudah dipakai user lain.</p>}
+            <Input id="su-username" value={username} onChange={(e) => setUsername(e.target.value.toLowerCase())} placeholder="e.g.: operator_c" maxLength={20} />
+            {taken && <p className="text-xs text-destructive">Username is already taken by another user.</p>}
           </div>
           <div className="grid gap-2">
             <Label>Role</Label>
@@ -139,14 +139,14 @@ function UserFormDialog({
             </Select>
           </div>
           <div className="grid gap-2">
-            <Label htmlFor="su-password">Password {isEditing ? "(kosongkan jika tidak diubah)" : ""}</Label>
-            <Input id="su-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Biarkan kosong untuk tidak mengubah" : "password123"} />
+            <Label htmlFor="su-password">Password {isEditing ? "(leave empty if unchanged)" : ""}</Label>
+            <Input id="su-password" type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder={isEditing ? "Leave empty to keep current password" : "password123"} />
           </div>
           <DialogFooter>
             <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
             <Button onClick={handleSubmit} disabled={!name.trim() || !username.trim() || taken || (!isEditing && !password)}>
               {isEditing ? <Save className="h-4 w-4 mr-2" /> : <UserLucide className="h-4 w-4 mr-2" />}
-              {isEditing ? "Simpan" : "Tambah"}
+              {isEditing ? "Save" : "Add"}
             </Button>
           </DialogFooter>
         </form>
@@ -167,11 +167,11 @@ export function Users() {
     return (
       <div className="flex flex-col items-start gap-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/"><MoveLeft className="h-4 w-4" /> Kembali ke Dashboard</Link>
+          <Link to="/"><MoveLeft className="h-4 w-4" /> Back to Dashboard</Link>
         </Button>
         <div className="flex items-center gap-2 rounded-lg border px-3 py-2.5 text-sm text-muted-foreground">
           <Shield className="h-4 w-4 shrink-0" />
-          Halaman ini hanya dapat diakses oleh administrator.
+          This page is only accessible by administrators.
         </div>
       </div>
     );
@@ -230,7 +230,7 @@ export function Users() {
   return (
     <div className="space-y-6">
       <PageHeader
-        title="Manajemen User"
+        title="User Management"
         actions={
           <Button onClick={openAddDialog}>
             <Plus className="h-4 w-4 mr-2" /> Tambah User
@@ -322,7 +322,7 @@ export function Users() {
       <Dialog open={!!deleteTarget} onOpenChange={(o) => !o && setDeleteTarget(null)}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
-            <DialogTitle>Hapus User</DialogTitle>
+            <DialogTitle>Delete User</DialogTitle>
             <DialogDescription>Yakin ingin menghapus user ini? Tindakan ini tidak bisa dibatalkan.</DialogDescription>
           </DialogHeader>
           {actionError && (
@@ -331,8 +331,8 @@ export function Users() {
             </p>
           )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteTarget(null)}>Batal</Button>
-            <Button variant="destructive" onClick={executeDelete}>Hapus</Button>
+              <Button variant="outline" onClick={() => setDeleteTarget(null)}>Cancel</Button>
+              <Button variant="destructive" onClick={executeDelete}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -174,7 +174,7 @@ export function Teams() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Create Team</DialogTitle>
-            <DialogDescription>Buat tim baru beserta team leader-nya.</DialogDescription>
+            <DialogDescription>Create a new team with its team leader.</DialogDescription>
           </DialogHeader>
           <div className="grid gap-4 py-2">
             <div className="grid gap-2">
@@ -183,7 +183,7 @@ export function Teams() {
                 id="team-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="cth: IT & System"
+                placeholder="e.g.: IT & System"
                 autoFocus
               />
             </div>
@@ -191,7 +191,7 @@ export function Teams() {
               <Label>Leader</Label>
               <Select value={leaderId} onValueChange={setLeaderId}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Pilih leader" />
+                  <SelectValue placeholder="Select leader" />
                 </SelectTrigger>
                 <SelectContent>
                   {users.map((u) => (

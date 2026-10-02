@@ -2,10 +2,11 @@ import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { listWorks } from "@/lib/api/works";
 import { listIssues } from "@/lib/api/issues";
+import { listIssueTypes } from "@/lib/api/issue-types";
 import { listTeams } from "@/lib/api/teams";
 import { listProfiles } from "@/lib/api/profiles";
 import { listLocations, listPlants, type SiteOption } from "@/lib/api/sites";
-import type { Issue, Team, User, WorkItem } from "@/types";
+import type { Issue, Team, User, WorkItem, IssueType } from "@/types";
 
 interface AsyncState<T> {
   data: T;
@@ -78,4 +79,8 @@ export function usePlants(): AsyncState<SiteOption[]> {
 
 export function useLocations(): AsyncState<SiteOption[]> {
   return useSupabaseList(() => listLocations(), [] as SiteOption[], ["locations"]);
+}
+
+export function useIssueTypes(): AsyncState<IssueType[]> {
+  return useSupabaseList(() => listIssueTypes(), [] as IssueType[], ["issue_types"]);
 }

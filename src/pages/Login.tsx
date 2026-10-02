@@ -36,7 +36,7 @@ export function Login() {
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary mb-4">
             <CheckSquare className="w-8 h-8 text-primary-foreground" />
           </div>
-          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Team Work</h1>
+          <h1 className="text-2xl font-semibold text-neutral-900 dark:text-neutral-100">TIMS</h1>
         </div>
 
         <div className="bg-white dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 p-6 shadow-sm">
@@ -59,7 +59,7 @@ export function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                  placeholder="cth: operator_a / admin"
+                  placeholder="e.g.: operator_a / admin"
                   autoComplete="username"
                   required
                   className="pl-10"
@@ -104,17 +104,17 @@ export function Login() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Memproses...
+                  Processing...
                 </span>
               ) : (
-                "Masuk"
+                "Sign In"
               )}
             </Button>
           </form>
         </div>
 
         <p className="mt-6 text-center text-xs text-neutral-400 dark:text-neutral-500">
-          &copy; 2026 Team Work
+          &copy; 2026 Task & Issue Management System
         </p>
       </div>
     </div>

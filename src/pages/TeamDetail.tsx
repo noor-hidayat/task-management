@@ -247,7 +247,7 @@ export function TeamDetail() {
                 size="icon"
                 className="h-8 w-8 text-destructive hover:bg-destructive/10 disabled:opacity-40"
                 disabled={isLeader}
-                title={isLeader ? "Leader tidak bisa dihapus dari tim" : `Hapus ${row.original.name} dari tim`}
+                title={isLeader ? "Leader cannot be removed from team" : `Remove ${row.original.name} from team`}
                 onClick={() => removeMember(row.original.id)}
               >
                 <Trash2 className="h-4 w-4" />
@@ -307,7 +307,7 @@ export function TeamDetail() {
     return (
       <div className="flex flex-col items-start gap-4">
         <Button variant="ghost" size="sm" asChild>
-          <Link to="/teams"><MoveLeft className="h-4 w-4" /> Kembali ke Teams</Link>
+          <Link to="/teams"><MoveLeft className="h-4 w-4" /> Back to Teams</Link>
         </Button>
         <p className="text-sm text-muted-foreground">Team tidak ditemukan.</p>
       </div>
@@ -415,7 +415,7 @@ export function TeamDetail() {
           <div className="relative">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Cari nama / username…"
+              placeholder="Search name / username…"
               value={addQuery}
               onChange={(e) => setAddQuery(e.target.value)}
               className="pl-9"
@@ -446,8 +446,8 @@ export function TeamDetail() {
             {candidates.length === 0 ? (
               <p className="px-3 py-6 text-center text-sm text-muted-foreground">
                 {allUsers.length === 0
-                  ? "Belum ada user."
-                  : "Semua user sudah jadi anggota tim."}
+                ? "No users yet."
+                : "All users are already members of this team."}
               </p>
             ) : (
               <ul className="divide-y">

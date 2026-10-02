@@ -13,8 +13,7 @@ export function AppLogo({ className, iconClassName }: AppLogoProps) {
         <CheckSquare className={cn("h-5 w-5 text-primary-foreground", iconClassName)} />
       </div>
       <div className="flex flex-col">
-        <span className="text-base font-semibold leading-tight">Team Work</span>
-        <span className="text-xs text-muted-foreground leading-tight">Task Management</span>
+        <span className="text-base font-semibold leading-tight">TIMS</span>
       </div>
     </div>
   );

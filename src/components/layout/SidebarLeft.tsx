@@ -29,9 +29,9 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
 
   return (
     <Sidebar collapsible="offcanvas" className="border-r-0" {...props}>
-      <SidebarHeader>
+      <SidebarHeader className="gap-1">
         <AppLogo className="px-2 py-3" />
-        <div className="px-0 pt-1">
+        <div className="px-0">
           <CreateIssueButton className="w-full" />
         </div>
         <NavMain

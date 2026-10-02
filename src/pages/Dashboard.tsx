@@ -216,7 +216,7 @@ function LineChart({
 
 const statConfig = [
   { key: "total" as const, label: "Total", icon: Inbox, color: "text-blue-600 bg-blue-50 dark:bg-blue-950" },
-  { key: "completed" as const, label: "Selesai", icon: CheckCircle2, color: "text-green-600 bg-green-50 dark:bg-green-950" },
+  { key: "completed" as const, label: "Completed", icon: CheckCircle2, color: "text-green-600 bg-green-50 dark:bg-green-950" },
   { key: "inProgress" as const, label: "In Progress", icon: Loader2, color: "text-sky-600 bg-sky-50 dark:bg-sky-950" },
   { key: "overdue" as const, label: "Overdue", icon: AlertTriangle, color: "text-red-600 bg-red-50 dark:bg-red-950" },
 ];

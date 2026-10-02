@@ -33,14 +33,14 @@ type Note = { id: string; title: string; body: string; at: string };
 const seed: Note[] = [
   {
     id: "n-1",
-    title: "Machine 4 — tunggu maintenance",
-    body: "Pressure belum dicek di Shift 2. Follow-up saat start shift berikutnya.",
+    title: "Machine 4 — wait for maintenance",
+    body: "Pressure not checked in Shift 2. Follow-up at next shift start.",
     at: "26 Sep 2026 14:50",
   },
   {
     id: "n-2",
-    title: "Stok sparepart line 2",
-    body: "Verify stock discrepancy selesai, tapi buffer menipis — buat task restock minggu depan.",
+    title: "Spare parts stock line 2",
+    body: "Stock discrepancy verification complete, but buffer running low — create restock task next week.",
     at: "25 Sep 2026 16:05",
   },
 ];
@@ -56,7 +56,7 @@ export function Notes() {
     setNotes((prev) => [
       {
         id: `n-${Date.now()}`,
-        title: title.trim() || "(Tanpa judul)",
+        title: title.trim() || "(No title)",
         body: body.trim(),
         at: new Date().toLocaleString("id-ID", {
           day: "numeric",
@@ -80,7 +80,7 @@ export function Notes() {
       />
 
       <div className="flex items-center justify-between">
-        <h2 className="text-lg font-semibold">Semua Catatan</h2>
+        <h2 className="text-lg font-semibold">All Notes</h2>
         <p className="text-sm text-muted-foreground">{notes.length} notes</p>
       </div>
 
@@ -158,13 +158,13 @@ export function Notes() {
           </DialogHeader>
           <div className="space-y-4">
             <Input
-              placeholder="Judul catatan..."
+              placeholder="Note title..."
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               autoFocus
             />
             <Textarea
-              placeholder="Tulis catatan shift..."
+              placeholder="Write shift note..."
               value={body}
               onChange={(e) => setBody(e.target.value)}
               className="min-h-[120px] resize-none"
@@ -172,14 +172,14 @@ export function Notes() {
           </div>
           <DialogFooter className="gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>
-              <X className="h-4 w-4 mr-2" /> Batal
+              <X className="h-4 w-4 mr-2" /> Cancel
             </Button>
             <Button
               onClick={add}
               className="gap-2 shadow-sm"
               disabled={!title.trim() && !body.trim()}
             >
-              <Plus className="h-4 w-4" /> Simpan
+              <Plus className="h-4 w-4" /> Save
             </Button>
           </DialogFooter>
         </DialogContent>

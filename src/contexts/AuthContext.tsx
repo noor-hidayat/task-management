@@ -53,7 +53,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = async (username: string, password: string) => {
     const { user: profile, error } = await signInWithUsername(username, password);
-    if (error || !profile) return { error: error ?? "Login gagal" };
+    if (error || !profile) return { error: error ?? "Login failed" };
     setUser(profile);
     return { error: null };
   };

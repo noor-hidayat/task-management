@@ -10,7 +10,6 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
-import { toDMY } from "@/components/task-form-dialog";
 import { avatarColor, initials, issueDisplayStatus } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIssues, useTeams } from "@/hooks/useSupabaseLists";
@@ -56,7 +55,7 @@ export function Issues() {
         assignedTo: i.assignedTo ?? "",
         assignedTeam: i.assignedTeam ?? "",
         reportedTeam: i.reportedTeam ?? "",
-        dueDate: i.dueDate ?? "",
+        issueType: i.issueType ?? "",
         // Status efektif agar "Cancelled" bisa difilter
         status: issueDisplayStatus(i),
       }));
@@ -81,7 +80,9 @@ export function Issues() {
   const handleCreate = async (v: IssueFormValues) => {
     if (!currentUser) return;
     const profiles = await listProfiles();
-    const assignee = profiles.find((u) => u.name === v.assignedTo);
+    const assigneeIds = v.assignedTo
+      .map((name) => profiles.find((u) => u.name === name)?.id)
+      .filter((id): id is string => !!id);
     const fallbackTeamId =
       currentUser.teamId ?? teams.find((t) => t.active)?.id ?? teams[0]?.id ?? "";
     const reportedTeamId = v.reportedTeamId || fallbackTeamId;
@@ -91,30 +92,32 @@ export function Issues() {
       description: v.description,
       priority: v.priority,
       createdById: currentUser.id,
-      assigneeIds: assignee ? [assignee.id] : [],
+      assigneeIds,
       reportedTeamId,
       assignedTeamId,
       plant: v.plant,
       location: v.location,
-      dueDate: toDMY(v.dueISO),
+      issueTypeId: v.issueTypeId,
     });
-    if (assignee && assignee.id !== currentUser.id) {
-      await pushNotification({
-        type: "assignment",
-        title: "Issue baru ditugaskan",
-        message: issue.title,
-        fromId: currentUser.id,
-        forUserId: assignee.id,
-        link: `/issues/${issue.number}`,
-      });
+    for (const name of v.assignedTo) {
+      const assignee = profiles.find((u) => u.name === name);
+      if (assignee && assignee.id !== currentUser.id) {
+        await pushNotification({
+          type: "assignment",
+          title: "New issue assigned",
+          message: issue.title,
+          fromId: currentUser.id,
+          forUserId: assignee.id,
+          link: `/issues/${issue.number}`,
+        });
+      }
     }
-    // Kirim notifikasi mention
     await notifyMentions({
       content: v.description,
       users: profiles,
       fromId: currentUser.id,
       fromName: currentUser.name,
-      title: "Anda disebutkan dalam issue",
+        title: "You were mentioned in an issue",
       message: issue.title,
       link: `/issues/${issue.number}`,
     });
@@ -203,13 +206,24 @@ export function Issues() {
         ),
       },
       {
-        accessorKey: "dueDate",
+        accessorKey: "issueType",
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Due Date" />
+          <DataTableColumnHeader column={column} title="Issue Type" />
         ),
         cell: ({ row }) => (
-          <span className="text-sm whitespace-nowrap">{row.getValue("dueDate") || "—"}</span>
+          <span className="text-sm whitespace-nowrap">{row.getValue("issueType") || "—"}</span>
         ),
+      },
+      {
+        accessorKey: "createdAt",
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Date" />
+        ),
+        cell: ({ row }) => {
+          const raw = row.original.createdAt; // "26 Sep 2026 14:45"
+          const dateOnly = raw ? raw.split(" ").slice(0, 3).join(" ") : "—";
+          return <span className="text-sm whitespace-nowrap">{dateOnly}</span>;
+        },
       },
     ],
     []
@@ -261,9 +275,12 @@ export function Issues() {
         options: teams.map((t) => ({ value: t.name, label: t.name })),
       },
       {
-        key: "dueDate",
-        label: "Due Date",
-        type: "date-range",
+        key: "issueType",
+        label: "Issue Type",
+        type: "select",
+        options: Array.from(new Set(list.map((i) => i.issueType).filter((x): x is string => !!x)))
+          .sort()
+          .map((name) => ({ value: name, label: name })),
       },
       {
         key: "title",
@@ -304,7 +321,7 @@ export function Issues() {
           <div className="relative flex-1 sm:w-64 sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Cari ID / Issue Title…"
+              placeholder="Search ID / Issue Title…"
               value={q}
               onChange={(e) => setQ(e.target.value)}
               className="pl-9"
@@ -365,7 +382,6 @@ export function Issues() {
         open={open}
         onOpenChange={setOpen}
         dialogTitle="New Issue"
-        submitLabel="Report Issue"
         onSubmit={handleCreate}
       />
     </div>

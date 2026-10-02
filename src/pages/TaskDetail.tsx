@@ -42,6 +42,7 @@ import {
   AttachmentTrigger,
 } from "@/components/ui/attachment";
 import { AttachmentPreviewDialog } from "@/components/attachment-preview";
+import { FileUploadDialog } from "@/components/file-upload-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -196,6 +197,7 @@ export function TaskDetail() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   const navigate = useNavigate();
   
 
@@ -271,8 +273,6 @@ export function TaskDetail() {
   // ---- Attachment ----
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const completeFileRef = useRef<HTMLInputElement>(null);
   // Object URL (hasil fetch dari Drive) per attachment id.
   const objectUrlsRef = useRef<Map<string, string>>(new Map());
   const [objectUrls, setObjectUrls] = useState<Record<string, string>>({});
@@ -361,7 +361,7 @@ export function TaskDetail() {
       );
       await refreshAttachments();
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "Upload gagal");
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
     }
   };
   const downloadItem = (a: AttachmentItem) => {
@@ -374,6 +374,7 @@ export function TaskDetail() {
   const removeAttachment = async (id: string) => {
     if (!base) return;
     const target = attachments.find((a) => a.id === id);
+    // Optimistic: cleanup URL + hapus dari UI
     const url = objectUrlsRef.current.get(id);
     if (url) {
       URL.revokeObjectURL(url);
@@ -384,19 +385,22 @@ export function TaskDetail() {
         return next;
       });
     }
-    if (!target?.driveFileId) return;
-    try {
-      await deleteAttachment(id, target.driveFileId);
-      await logActivity(
-        "work",
-        base.id,
-        target ? `removed attachment (${target.name})` : "removed attachment",
-        currentUser?.id ?? null
-      );
-    } catch (e) {
-      console.error("delete attachment error:", e);
-    } finally {
-      await refreshAttachments();
+    setAttachments((prev) => prev.filter((a) => a.id !== id));
+    // Background delete
+    if (target?.driveFileId) {
+      deleteAttachment(id, target.driveFileId)
+        .then(() =>
+          logActivity(
+            "work",
+            base.id,
+            `removed attachment (${target.name})`,
+            currentUser?.id ?? null
+          )
+        )
+        .catch((e) => {
+          console.error("delete attachment error:", e);
+          refreshAttachments();
+        });
     }
   };
 
@@ -457,7 +461,7 @@ export function TaskDetail() {
       setDeleteOpen(false);
       navigate("/tasks");
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Gagal menghapus task");
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete task");
     }
   };
 
@@ -546,7 +550,7 @@ export function TaskDetail() {
       users: allUsers,
       fromId: authorId,
       fromName: currentUser?.name,
-      title: "Anda disebut",
+        title: "You were mentioned",
       message: clean.length > 80 ? `${clean.slice(0, 80)}…` : clean,
       link: `/tasks/${base.number}`,
     });
@@ -592,7 +596,7 @@ export function TaskDetail() {
       if (!target) continue;
       await pushNotification({
         type: "assignment",
-        title: "Task baru ditugaskan",
+        title: "New task assigned",
         message: base.title,
         fromId: currentUser?.id ?? null,
         forUserId: target.id,
@@ -895,7 +899,7 @@ export function TaskDetail() {
               </div>
             <div>
               {comments.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
+                <p className="text-sm text-muted-foreground">No comments yet.</p>
               ) : (
                 <ul className="space-y-4">
                   {comments.map((c) => (
@@ -926,7 +930,7 @@ export function TaskDetail() {
             <section className="space-y-4">
               <SectionTitle title="Activity" icon={<CircleDot />} count={base.activities.length} />
               {base.activities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
+                <p className="text-sm text-muted-foreground">No activity yet.</p>
               ) : (
                 <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
                   {base.activities.map((a) => (
@@ -992,22 +996,12 @@ export function TaskDetail() {
                 icon={<Paperclip />}
                 label="Attachment"
                 action={
-                  <AddButton label="Add attachment" onClick={() => fileInputRef.current?.click()} />
+                  <AddButton label="Add attachment" onClick={() => setUploadDialogOpen(true)} />
                 }
               >
                 <div className="space-y-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      onPickFiles(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
                   {attachments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
+                    <p className="text-sm text-muted-foreground">No Attachment.</p>
                   ) : (
                     <AttachmentGroup>
                       {attachments.map((a) =>
@@ -1079,8 +1073,6 @@ export function TaskDetail() {
         open={editOpen}
         onOpenChange={setEditOpen}
         dialogTitle="Edit"
-        dialogDescription="Ubah task — form yang sama seperti create task."
-        submitLabel="Simpan"
         showAssignee={false}
         showTeam={false}
         initial={{
@@ -1124,8 +1116,8 @@ export function TaskDetail() {
             <DialogTitle>Complete</DialogTitle>
             <DialogDescription>
               {subTasks.length > 0 && subTasks.some((s) => !s.done)
-                ? "Selesaikan semua checklist terlebih dahulu."
-                : "Yakin task ini sudah selesai?"}
+                ? "Complete all checklist items first."
+                : "Are you sure this task is complete?"}
             </DialogDescription>
           </DialogHeader>
           {subTasks.length > 0 && subTasks.some((s) => !s.done) ? (
@@ -1145,22 +1137,12 @@ export function TaskDetail() {
             <FieldGroup>
               <Field>
                 <FieldLabel>Attachment (dianjurkan, tidak wajib)</FieldLabel>
-                <input
-                  ref={completeFileRef}
-                  type="file"
-                  multiple
-                  className="hidden"
-                  onChange={(e) => {
-                    onPickFiles(e.target.files);
-                    e.target.value = "";
-                  }}
-                />
                 <div className="flex items-center gap-2">
-                  <Button variant="outline" size="sm" onClick={() => completeFileRef.current?.click()}>
+                  <Button variant="outline" size="sm" onClick={() => setUploadDialogOpen(true)}>
                     <Paperclip className="h-4 w-4" /> Tambah file
                   </Button>
                   <span className="text-xs text-muted-foreground">
-                    {attachments.length > 0 ? `${attachments.length} file terlampir` : "Belum ada file"}
+                    {attachments.length > 0 ? `${attachments.length} file(s) attached` : "No files yet"}
                   </span>
                 </div>
               </Field>
@@ -1168,7 +1150,7 @@ export function TaskDetail() {
           )}
           <DialogFooter>
             <Button variant="outline" onClick={() => setCompleteOpen(false)}>
-              {subTasks.length > 0 && subTasks.some((s) => !s.done) ? "Tutup" : "Batal"}
+                {subTasks.length > 0 && subTasks.some((s) => !s.done) ? "Close" : "Cancel"}
             </Button>
             {!(subTasks.length > 0 && subTasks.some((s) => !s.done)) && (
               <Button onClick={completeTask}>
@@ -1181,6 +1163,13 @@ export function TaskDetail() {
 
       {/* Preview attachment */}
       <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
+
+      {/* Upload attachment */}
+      <FileUploadDialog
+        open={uploadDialogOpen}
+        onOpenChange={setUploadDialogOpen}
+        onFilesSelected={onPickFiles}
+      />
 
       {/* Cancel — konfirmasi */}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -1241,14 +1230,14 @@ export function TaskDetail() {
                   </span>
                 )}
               </FieldLabel>
-              <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+              <div className="space-y-2 min-w-0 w-full">
                 {pendingAssignees.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+                  <div className="flex gap-1.5 overflow-x-auto w-full scrollbar-hide pb-1" style={{ scrollbarWidth: 'none' }}>
                     {pendingAssignees.map((name) => (
                       <Badge
                         key={name}
                         variant="secondary"
-                        className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal"
+                        className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal flex-shrink-0"
                       >
                         <Avatar className="h-4 w-4">
                           <AvatarFallback className={`text-[8px] ${avatarColor(name)}`}>
@@ -1268,69 +1257,68 @@ export function TaskDetail() {
                     ))}
                   </div>
                 )}
-                <div className="relative">
-                  <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    ref={pickerInputRef}
-                    id="assignee-picker"
-                    value={pickerQuery}
-                    onChange={(e) => setPickerQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
-                        e.preventDefault();
-                        if (pickerSuggestions.length > 0) {
-                          addPending(pickerSuggestions[0].name);
-                        } else if (pickerQuery.trim()) {
-                          addPending(pickerQuery);
+                <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      ref={pickerInputRef}
+                      id="assignee-picker"
+                      value={pickerQuery}
+                      onChange={(e) => setPickerQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+                          e.preventDefault();
+                          if (pickerSuggestions.length > 0) {
+                            addPending(pickerSuggestions[0].name);
+                          } else if (pickerQuery.trim()) {
+                            addPending(pickerQuery);
+                          }
+                        } else if (
+                          e.key === "Backspace" &&
+                          pickerQuery === "" &&
+                          pendingAssignees.length > 0
+                        ) {
+                          removePending(pendingAssignees[pendingAssignees.length - 1]);
                         }
-                      } else if (
-                        e.key === "Backspace" &&
-                        pickerQuery === "" &&
+                      }}
+                      placeholder={
                         pendingAssignees.length > 0
-                      ) {
-                        removePending(pendingAssignees[pendingAssignees.length - 1]);
+                          ? "Add more…"
+                          : "Search people by name…"
                       }
-                    }}
-                    placeholder={
-                      pendingAssignees.length > 0
-                        ? "Search to add more people…"
-                        : "Search people by name…"
-                    }
-                    autoComplete="off"
-                    className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
-                  />
-                  {pickerSuggestions.length > 0 && (
-                    <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
-                      {pickerSuggestions.slice(0, 3).map((u) => (
-                        <button
-                          key={u.id}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            addPending(u.name);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
-                        >
-                          <Avatar className="h-7 w-7">
-                            <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
-                              {initials(u.name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">{u.name}</span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              @{u.name.toLowerCase().replace(/\s+/g, "")}
+                      autoComplete="off"
+                      className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                    />
+                    {pickerSuggestions.length > 0 && (
+                      <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+                        {pickerSuggestions.slice(0, 3).map((u) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              addPending(u.name);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                          >
+                            <Avatar className="h-7 w-7">
+                              <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
+                                {initials(u.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{u.name}</span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                @{u.name.toLowerCase().replace(/\s+/g, "")}
+                              </span>
                             </span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Type @ to search, press Enter to add.
-              </p>
             </Field>
             <Field>
               <FieldLabel htmlFor="assignee-comment">Comment <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>

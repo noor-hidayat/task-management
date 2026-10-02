@@ -156,12 +156,7 @@ export function DataTable<TData, TValue>({
       </div>
 
       {hidePagination ? null : (
-        <div className="flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-between">
-          <div className="text-sm text-muted-foreground">
-            Showing {table.getRowModel().rows.length} of{" "}
-            {table.getFilteredRowModel().rows.length} row(s).
-          </div>
-
+        <div className="flex flex-col gap-3 px-2 sm:flex-row sm:items-center sm:justify-end">
           <div className="flex flex-wrap items-center gap-4 sm:gap-6">
             <div className="flex items-center gap-2">
               <p className="text-sm font-medium">Rows per page</p>

@@ -53,7 +53,7 @@ export function RichTextEditor({
   value,
   onChange,
   users = [],
-  placeholder = "Tulis deskripsi…",
+  placeholder = "Write description…",
   height = 320,
 }: {
   value: string;
@@ -357,7 +357,7 @@ export function RichTextEditor({
         <Button type="button" variant="ghost" size="icon" className={tool} title="Link" onMouseDown={(e) => e.preventDefault()} onClick={addLink}>
           <Link2 className="h-4 w-4" />
         </Button>
-        <Button type="button" variant="ghost" size="icon" className={tool} title="Mention (@nama)" onMouseDown={(e) => e.preventDefault()} onClick={() => { ref.current?.focus(); try { document.execCommand("insertText", false, "@"); } catch {} emit(); }}>
+        <Button type="button" variant="ghost" size="icon" className={tool} title="Mention (@name)" onMouseDown={(e) => e.preventDefault()} onClick={() => { ref.current?.focus(); try { document.execCommand("insertText", false, "@"); } catch {} emit(); }}>
           <AtSign className="h-4 w-4" />
         </Button>
         <span className="mx-1 h-5 w-px bg-border" />
@@ -370,7 +370,7 @@ export function RichTextEditor({
         <Button type="button" variant="ghost" size="icon" className={tool} title="Checklist" onMouseDown={(e) => e.preventDefault()} onClick={insertChecklist}>
           <ListChecks className="h-4 w-4" />
         </Button>
-        <Button type="button" variant="ghost" size="icon" className={tool} title="Hapus format" onMouseDown={(e) => e.preventDefault()} onClick={clearFormat}>
+        <Button type="button" variant="ghost" size="icon" className={tool} title="Clear format" onMouseDown={(e) => e.preventDefault()} onClick={clearFormat}>
           <RemoveFormatting className="h-4 w-4" />
         </Button>
       </div>

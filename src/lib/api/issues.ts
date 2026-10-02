@@ -18,7 +18,7 @@ interface IssueRow {
   assigned_team_id: string | null;
   plant: string | null;
   location: string | null;
-  due_date: string | null;
+  issue_type_id: string | null;
   resolution: string | null;
   closed_at: string | null;
   start_datetime: string | null;
@@ -40,17 +40,19 @@ interface HandoverRow {
 }
 
 export async function fetchIssueLookups() {
-  const [{ data: profiles }, { data: teams }] = await Promise.all([
+  const [{ data: profiles }, { data: teams }, { data: issueTypes }] = await Promise.all([
     supabase.from("profiles").select("id, name"),
     supabase.from("teams").select("id, name"),
+    supabase.from("issue_types").select("id, name"),
   ]);
   const names = makeNameMap(profiles as { id: string; name: string }[] | null);
   const teamNameById = makeNameMap(teams as { id: string; name: string }[] | null);
-  return { names, teamNameById };
+  const issueTypeNameById = makeNameMap(issueTypes as { id: string; name: string }[] | null);
+  return { names, teamNameById, issueTypeNameById };
 }
 
 export async function listIssues(): Promise<Issue[]> {
-  const { names, teamNameById } = await fetchIssueLookups();
+  const { names, teamNameById, issueTypeNameById } = await fetchIssueLookups();
 
   const { data, error } = await supabase
     .from("issues")
@@ -121,7 +123,8 @@ export async function listIssues(): Promise<Issue[]> {
       handoverHistory: handoversByIssue.get(r.id) ?? [],
       plant: r.plant ?? "",
       location: r.location ?? "",
-      dueDate: r.due_date ?? "",
+      issueTypeId: r.issue_type_id ?? undefined,
+      issueType: r.issue_type_id ? nameOf(issueTypeNameById, r.issue_type_id) : undefined,
       resolution: r.resolution ?? undefined,
       closedAt: r.closed_at ? formatDateTime(r.closed_at) : undefined,
       startDateTime: r.start_datetime ? formatDateTime(r.start_datetime) : undefined,
@@ -150,7 +153,7 @@ export interface CreateIssueInput {
   assignedTeamId: string;
   plant: string;
   location: string;
-  dueDate: string;
+  issueTypeId: string;
 }
 
 export async function createIssue(input: CreateIssueInput): Promise<Issue> {
@@ -168,7 +171,7 @@ export async function createIssue(input: CreateIssueInput): Promise<Issue> {
       assigned_team_id: input.assignedTeamId || input.reportedTeamId || null,
       plant: input.plant,
       location: input.location,
-      due_date: input.dueDate,
+      issue_type_id: input.issueTypeId || null,
     })
     .select("id")
     .single();
@@ -194,7 +197,7 @@ export async function updateIssue(
     assignedTeamId: string;
     resolution: string;
     holdReason: string;
-    dueDate: string;
+    issueTypeId: string;
     plant: string;
     location: string;
     cancelled: boolean;
@@ -210,7 +213,7 @@ export async function updateIssue(
   if (patch.assignedTeamId !== undefined) dbPatch.assigned_team_id = patch.assignedTeamId || null;
   if (patch.resolution !== undefined) dbPatch.resolution = patch.resolution;
   if (patch.holdReason !== undefined) dbPatch.hold_reason = patch.holdReason;
-  if (patch.dueDate !== undefined) dbPatch.due_date = patch.dueDate;
+  if (patch.issueTypeId !== undefined) dbPatch.issue_type_id = patch.issueTypeId || null;
   if (patch.plant !== undefined) dbPatch.plant = patch.plant;
   if (patch.location !== undefined) dbPatch.location = patch.location;
   if (patch.cancelled !== undefined) dbPatch.cancelled = patch.cancelled;

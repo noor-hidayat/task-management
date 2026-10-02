@@ -1,10 +1,11 @@
-import { useState } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Controller, useForm } from "react-hook-form";
-import { Plus } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import { z } from "zod";
 
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -73,8 +74,50 @@ export function CreateTaskDialog({
     },
   });
 
+  const [pendingAssignee, setPendingAssignee] = useState("");
+  const [pickerQuery, setPickerQuery] = useState("");
+  const pickerInputRef = useRef<HTMLInputElement>(null);
+
+  const atMatch = pickerQuery.match(/@([\w ]*)$/);
+  const pickerNormalized = atMatch ? atMatch[1].toLowerCase().trim() : pickerQuery.toLowerCase().trim();
+  const pickerSuggestions = useMemo(
+    () =>
+      pickerNormalized === ""
+        ? []
+        : users.filter((u) => u.name.toLowerCase().includes(pickerNormalized)),
+    [pickerNormalized, users]
+  );
+
+  const addAssignee = (name: string) => {
+    const clean = name.replace(/^@/, "").trim();
+    if (!clean) return;
+    const found =
+      users.find((u) => u.name.toLowerCase() === clean.toLowerCase()) ??
+      users.find((u) => u.name.toLowerCase().includes(clean.toLowerCase()));
+    const toAdd = found?.name ?? clean;
+    setPendingAssignee(toAdd);
+    form.setValue("assignee", toAdd);
+    setPickerQuery("");
+    pickerInputRef.current?.focus();
+  };
+
+  const removeAssignee = () => {
+    setPendingAssignee("");
+    form.setValue("assignee", "");
+    setPickerQuery("");
+  };
+
+  useEffect(() => {
+    if (!open) {
+      setPendingAssignee("");
+      setPickerQuery("");
+    }
+  }, [open]);
+
   const resetAll = () => {
     form.reset();
+    setPendingAssignee("");
+    setPickerQuery("");
   };
 
   const handleOpenChange = (v: boolean) => {
@@ -149,26 +192,83 @@ export function CreateTaskDialog({
                 render={({ field, fieldState }) => (
                   <Field data-invalid={fieldState.invalid}>
                     <FieldLabel htmlFor="ct-assignee">Assignee</FieldLabel>
-                    <Select value={field.value || ""} onValueChange={(v) => field.onChange(v)}>
-                      <SelectTrigger aria-invalid={fieldState.invalid} id="ct-assignee">
-                        <SelectValue placeholder="Select Assignee" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Unassigned</SelectItem>
-                        {users.map((u) => (
-                          <SelectItem key={u.id} value={u.name}>
-                            <div className="flex items-center gap-2">
-                              <Avatar className="h-5 w-5">
-                                <AvatarFallback className={`text-[9px] ${avatarColor(u.name)}`}>
-                                  {initials(u.name)}
-                                </AvatarFallback>
-                              </Avatar>
-                              <span>{u.name}</span>
-                            </div>
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+                      {pendingAssignee && (
+                        <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+                          <Badge variant="secondary" className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal">
+                            <Avatar className="h-4 w-4">
+                              <AvatarFallback className={`text-[8px] ${avatarColor(pendingAssignee)}`}>
+                                {initials(pendingAssignee)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="max-w-32 truncate">{pendingAssignee}</span>
+                            <button
+                              type="button"
+                              aria-label={`Remove ${pendingAssignee}`}
+                              onClick={removeAssignee}
+                              className="rounded-full p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                            >
+                              <X className="h-3 w-3" />
+                            </button>
+                          </Badge>
+                        </div>
+                      )}
+                      <div className="relative">
+                        <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          ref={pickerInputRef}
+                          id="ct-assignee"
+                          value={pickerQuery}
+                          onChange={(e) => setPickerQuery(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+                              e.preventDefault();
+                              if (pickerSuggestions.length > 0) {
+                                addAssignee(pickerSuggestions[0].name);
+                              } else if (pickerQuery.trim()) {
+                                addAssignee(pickerQuery);
+                              }
+                            } else if (
+                              e.key === "Backspace" &&
+                              pickerQuery === "" &&
+                              pendingAssignee
+                            ) {
+                              removeAssignee();
+                            }
+                          }}
+                          placeholder={pendingAssignee ? "Search to add more people…" : "Search people by name…"}
+                          autoComplete="off"
+                          className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                        />
+                        {pickerSuggestions.length > 0 && (
+                          <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+                            {pickerSuggestions.slice(0, 3).map((u) => (
+                              <button
+                                key={u.id}
+                                type="button"
+                                onMouseDown={(e) => {
+                                  e.preventDefault();
+                                  addAssignee(u.name);
+                                }}
+                                className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                              >
+                                <Avatar className="h-7 w-7">
+                                  <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
+                                    {initials(u.name)}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate font-medium">{u.name}</span>
+                                  <span className="block truncate text-xs text-muted-foreground">
+                                    @{u.name.toLowerCase().replace(/\s+/g, "")}
+                                  </span>
+                                </span>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                     {fieldState.invalid && (
                       <FieldError errors={[fieldState.error]} />
                     )}
@@ -324,7 +424,7 @@ export function CreateTaskButton({ className }: { className?: string }) {
     if (assignee && assignee.id !== currentUser.id) {
       await pushNotification({
         type: "assignment",
-        title: "Task baru ditugaskan",
+        title: "New task assigned",
         message: work.title,
         fromId: currentUser.id,
         forUserId: assignee.id,
@@ -337,7 +437,7 @@ export function CreateTaskButton({ className }: { className?: string }) {
       users: profiles,
       fromId: currentUser.id,
       fromName: currentUser.name,
-      title: "Anda disebutkan dalam task",
+        title: "You were mentioned in a task",
       message: work.title,
       link: `/tasks/${work.number}`,
     });

@@ -95,14 +95,14 @@ function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRo
       }
     ),
     ...issueItems.map(
-      (i): WorkRow => ({
+(i): WorkRow => ({
         kind: "issue",
         id: i.id,
         number: i.number,
         title: i.title,
         assignee: i.assignedTo,
         priority: i.priority,
-        dueDate: i.dueDate,
+        dueDate: i.createdAt,
         column: issueColumn(i.status),
         created: i.createdAt,
         updatedAt: i.updatedAt,
@@ -118,10 +118,10 @@ function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRo
 }
 
 const COLUMNS: { key: WorkColumn; title: string; hint: string }[] = [
-  { key: "open", title: "Open", hint: "Baru masuk" },
+  { key: "open", title: "Open", hint: "Newly added" },
   { key: "in_progress", title: "In Progress", hint: "Sedang dikerjakan" },
-  { key: "on_hold", title: "On Hold", hint: "Ditunda sementara" },
-  { key: "completed", title: "Completed", hint: "Selesai" },
+  { key: "on_hold", title: "On Hold", hint: "Temporarily on hold" },
+  { key: "completed", title: "Completed", hint: "Completed" },
 ];
 
 const listColumns: ColumnDef<WorkRow>[] = [
@@ -310,10 +310,6 @@ export function MyWork() {
               );
             })}
           </div>
-          <p className="flex items-center gap-2 text-xs text-muted-foreground">
-            <ClipboardList className="h-3.5 w-3.5" />
-            Kanban hanya menampilkan 5 progres terakhir — lihat tab List untuk semuanya ({filtered.length}).
-          </p>
         </TabsContent>
 
         <TabsContent value="list">

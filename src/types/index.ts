@@ -118,6 +118,12 @@ export interface HandoverEntry {
   note?: string;
 }
 
+export interface IssueType {
+  id: string;
+  name: string;
+  createdAt: string;
+}
+
 export interface Issue {
   id: string;
   number: string;
@@ -139,7 +145,9 @@ export interface Issue {
   handoverHistory?: HandoverEntry[];
   plant: string;
   location: string;
-  dueDate: string;
+  /** Issue type ID dan name */
+  issueTypeId?: string;
+  issueType?: string;
   resolution?: string;
   closedAt?: string;
   startDateTime?: string;

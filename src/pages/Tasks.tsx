@@ -70,7 +70,7 @@ export function Tasks() {
     if (assignee && assignee.id !== currentUser.id) {
       await pushNotification({
         type: "assignment",
-        title: "Task baru ditugaskan",
+        title: "New task assigned",
         message: work.title,
         fromId: currentUser.id,
         forUserId: assignee.id,
@@ -83,7 +83,7 @@ export function Tasks() {
       users: profiles,
       fromId: currentUser.id,
       fromName: currentUser.name,
-      title: "Anda disebutkan dalam task",
+        title: "You were mentioned in a task",
       message: work.title,
       link: `/tasks/${work.number}`,
     });
@@ -297,7 +297,7 @@ export function Tasks() {
           <div className="relative flex-1 sm:w-64 sm:flex-none">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Cari ID / Task Title…"
+              placeholder="Search ID / Task Title…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               className="pl-9"
@@ -358,7 +358,6 @@ export function Tasks() {
         open={open}
         onOpenChange={setOpen}
         dialogTitle="New Task"
-        submitLabel="Create & Assign"
         onSubmit={handleCreate}
       />
     </div>

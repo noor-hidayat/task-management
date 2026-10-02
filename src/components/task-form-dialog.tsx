@@ -4,7 +4,6 @@ import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -82,8 +81,6 @@ export function TaskFormDialog({
   onOpenChange,
   initial,
   dialogTitle,
-  dialogDescription,
-  submitLabel,
   showAssignee = true,
   showTeam = false,
   onSubmit,
@@ -92,8 +89,6 @@ export function TaskFormDialog({
   onOpenChange: (open: boolean) => void;
   initial?: Partial<TaskFormValues>;
   dialogTitle: string;
-  dialogDescription?: string;
-  submitLabel: string;
   showAssignee?: boolean;
   showTeam?: boolean;
   onSubmit: (values: TaskFormValues) => void;
@@ -146,7 +141,6 @@ export function TaskFormDialog({
       <DialogContent className="max-h-[90svh] max-w-4xl overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{dialogTitle}</DialogTitle>
-          {dialogDescription && <DialogDescription>{dialogDescription}</DialogDescription>}
         </DialogHeader>
         <div className="grid gap-4 py-2 md:grid-cols-[1fr_240px]">
           {/* Kiri: Title + Description */}
@@ -157,7 +151,7 @@ export function TaskFormDialog({
                 id="tf-title"
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
-                placeholder="cth: Check Machine Line 4"
+                placeholder="e.g.: Check Machine Line 4"
                 autoComplete="off"
               />
             </div>
@@ -167,7 +161,7 @@ export function TaskFormDialog({
                 value={description}
                 onChange={setDescription}
                 users={users.map((u) => u.name)}
-                placeholder="Deskripsi detail task..."
+                placeholder="Detailed task description..."
                 height={200}
               />
             </div>
@@ -266,10 +260,10 @@ export function TaskFormDialog({
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>
-            Batal
+            Cancel
           </Button>
           <Button onClick={handleSubmit} disabled={!title.trim()}>
-            {submitLabel}
+            Submit
           </Button>
         </DialogFooter>
       </DialogContent>

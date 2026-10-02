@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Search,
   Send,
+  Tag,
   Trash2,
   Users,
   X,
@@ -42,6 +43,7 @@ import {
   AttachmentTrigger,
 } from "@/components/ui/attachment";
 import { AttachmentPreviewDialog } from "@/components/attachment-preview";
+import { FileUploadDialog } from "@/components/file-upload-dialog";
 import { Badge } from "@/components/ui/badge";
 import {
   Breadcrumb,
@@ -75,7 +77,6 @@ import { RichTextEditor } from "@/components/rich-text-editor";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 
-import { dmyToISO, toDMY } from "@/components/task-form-dialog";
 import { avatarColor, initials } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useUsers } from "@/hooks/useSupabaseLists";
@@ -184,7 +185,7 @@ export function IssueDetail() {
   const { number } = useParams();
   const { user: currentUser } = useAuth();
   const { data: users } = useUsers();
-  const { data: issue, loading: issuesLoading, reload } = useIssue(number);
+  const { data: issue, loading: issuesLoading, reload, refreshAttachments } = useIssue(number);
   const [draft, setDraft] = useState("");
 
   useEffect(() => {
@@ -214,11 +215,10 @@ export function IssueDetail() {
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
   useEffect(() => {
     setAttachments(toAttachmentItems(issue?.evidences ?? []));
   }, [issue?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const atMatch = pickerQuery.match(/@([\w ]*)$/);
   const pickerNormalized = atMatch ? atMatch[1].toLowerCase().trim() : null;
@@ -371,7 +371,7 @@ export function IssueDetail() {
       setDeleteOpen(false);
       navigate("/issues");
     } catch (e) {
-      setDeleteError(e instanceof Error ? e.message : "Gagal menghapus issue");
+      setDeleteError(e instanceof Error ? e.message : "Failed to delete issue");
     }
   };
 
@@ -408,15 +408,17 @@ export function IssueDetail() {
 
   const submitEdit = async (v: IssueFormValues) => {
     const profiles = await listProfiles();
-    const assigneeId = profiles.find((u) => u.name === v.assignedTo)?.id;
+    const assigneeIds = v.assignedTo
+      .map((name) => profiles.find((u) => u.name === name)?.id)
+      .filter((id): id is string => !!id);
     const patch: Parameters<typeof updateIssue>[1] = {
       title: v.title,
       description: v.description,
       priority: v.priority,
-      dueDate: toDMY(v.dueISO) || issue.dueDate,
       plant: v.plant,
       location: v.location,
-      assigneeIds: assigneeId ? [assigneeId] : [],
+      assigneeIds,
+      issueTypeId: v.issueTypeId,
     };
     if (v.assignedTeamId && v.assignedTeamId !== issue.assignedTeamId) {
       patch.assignedTeamId = v.assignedTeamId;
@@ -446,7 +448,7 @@ export function IssueDetail() {
         if (!target) continue;
         await pushNotification({
           type: "assignment",
-          title: "Issue baru ditugaskan",
+          title: "New issue assigned",
           message: issue.title,
           fromId: currentUser?.id ?? null,
           forUserId: target.id,
@@ -491,9 +493,9 @@ export function IssueDetail() {
           actorId
         );
       }
-      reload();
+      refreshAttachments();
     } catch (e) {
-      setUploadError(e instanceof Error ? e.message : "Upload gagal");
+      setUploadError(e instanceof Error ? e.message : "Upload failed");
     }
   };
 
@@ -508,16 +510,22 @@ export function IssueDetail() {
 
   const removeAttachment = async (id: string) => {
     const target = attachments.find((a) => a.id === id);
-    if (target?.preview) URL.revokeObjectURL(target.preview);
-    if (target?.url && target.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
-    if (target?.driveFileId) {
-      await deleteAttachment(target.id, target.driveFileId);
-    }
+    if (!target) return;
+    // Optimistic: hapus dari UI dulu
+    if (target.preview) URL.revokeObjectURL(target.preview);
+    if (target.url && target.url.startsWith("blob:")) URL.revokeObjectURL(target.url);
     setAttachments((prev) => prev.filter((a) => a.id !== id));
-    if (target) {
-      await logActivity("issue", issue.id, `removed attachment (${target.name})`, actorId);
+    // Background delete
+    if (target.driveFileId) {
+      deleteAttachment(target.id, target.driveFileId)
+        .then(() =>
+          logActivity("issue", issue.id, `removed attachment (${target.name})`, actorId)
+        )
+        .catch(() => {
+          // rollback optional — refreshAttachments bisa dipanggil jika perlu
+          refreshAttachments();
+        });
     }
-    reload();
   };
 
   const openPreview = async (a: AttachmentItem) => {
@@ -543,7 +551,7 @@ export function IssueDetail() {
       users,
       fromId: currentUser?.id ?? null,
       fromName: currentUser?.name,
-      title: "Anda disebut dalam issue",
+      title: "You were mentioned in an issue",
       message: issue.title,
       link: `/issues/${issue.number}`,
     });
@@ -729,7 +737,7 @@ export function IssueDetail() {
               </Button>
             </div>
             {comments.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Belum ada komentar.</p>
+              <p className="text-sm text-muted-foreground">No comments yet.</p>
             ) : (
               <ul className="space-y-4">
                 {comments.map((c) => (
@@ -757,7 +765,7 @@ export function IssueDetail() {
           <section className="space-y-4">
             <SectionTitle title="Activity" icon={<CircleDot />} count={issue.activities.length} />
             {issue.activities.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Belum ada aktivitas.</p>
+              <p className="text-sm text-muted-foreground">No activity yet.</p>
             ) : (
               <ol className="relative ml-2 grid grid-cols-1 gap-4 border-l pl-4">
                 {issue.activities.map((a) => (
@@ -780,7 +788,7 @@ export function IssueDetail() {
           </section>
         </main>
 
-        {/* Details panel kanan — Status | Priority | Due Date | Plant | Location | Assigned To */}
+        {/* Details panel kanan — Status | Priority | Issue Type | Plant | Location | Assigned To */}
         <aside className="min-w-0 lg:w-[320px] lg:shrink-0 lg:border-l lg:pl-6">
           <div className="space-y-4 lg:sticky lg:top-0">
             <div className="space-y-4">
@@ -813,6 +821,9 @@ export function IssueDetail() {
                   <p className="mt-0.5 text-sm">{issue.holdReason}</p>
                 </div>
               )}
+              <DetailField icon={<Tag />} label="Issue Type">
+                <span className="text-sm">{issue.issueType || "—"}</span>
+              </DetailField>
               <DetailField icon={<Flag />} label="Priority">
                 <PriorityBadge priority={issue.priority} />
               </DetailField>
@@ -822,29 +833,16 @@ export function IssueDetail() {
               <DetailField icon={<MapPin />} label="Location">
                 <span className="text-sm">{issue.location || "—"}</span>
               </DetailField>
-              <DetailField icon={<CalendarDays />} label="Due Date">
-                <span className="text-sm">{issue.dueDate || "—"}</span>
-              </DetailField>
               <DetailField
                 icon={<Paperclip />}
                 label="Attachment"
                 action={
-                  <AddButton label="Add attachment" onClick={() => fileInputRef.current?.click()} />
+                  <AddButton label="Add attachment" onClick={() => setUploadDialogOpen(true)} />
                 }
               >
                 <div className="space-y-2">
-                  <input
-                    ref={fileInputRef}
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      onPickFiles(e.target.files);
-                      e.target.value = "";
-                    }}
-                  />
                   {attachments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Belum ada attachment.</p>
+                    <p className="text-sm text-muted-foreground">No Attachment.</p>
                   ) : (
                     <AttachmentGroup>
                       {attachments.map((a) =>
@@ -906,18 +904,16 @@ export function IssueDetail() {
         open={editOpen}
         onOpenChange={setEditOpen}
         dialogTitle="Edit"
-        dialogDescription="Ubah issue — form yang sama seperti report issue."
-        submitLabel="Simpan"
         initial={{
           title: issue.title,
           description: issue.description,
           priority: issue.priority,
-          assignedTo: issue.assignedTo,
+          assignedTo: assignees,
           reportedTeamId: issue.reportedTeamId,
           assignedTeamId: issue.assignedTeamId,
           plant: issue.plant,
           location: issue.location,
-          dueISO: dmyToISO(issue.dueDate),
+          issueTypeId: issue.issueTypeId ?? "",
         }}
         onSubmit={submitEdit}
       />
@@ -927,34 +923,33 @@ export function IssueDetail() {
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>Start Issue</DialogTitle>
-            <DialogDescription>
-              Tentukan tanggal & jam mulai #{issue.number}.
-            </DialogDescription>
           </DialogHeader>
-          <FieldGroup>
-            <Field>
-              <FieldLabel htmlFor="issue-start-date">Start Date</FieldLabel>
-              <DatePicker
-                id="issue-start-date"
-                value={startDateDraft}
-                onChange={setStartDateDraft}
-              />
-            </Field>
-            <Field>
-              <FieldLabel htmlFor="issue-start-time">Start Time</FieldLabel>
-              <TimePicker
-                id="issue-start-time"
-                value={startTimeDraft}
-                onChange={setStartTimeDraft}
-              />
-            </Field>
-          </FieldGroup>
+          <div className="grid grid-cols-2 gap-4">
+            <FieldGroup>
+              <Field>
+                <FieldLabel htmlFor="issue-start-date">Start Date</FieldLabel>
+                <DatePicker
+                  id="issue-start-date"
+                  value={startDateDraft}
+                  onChange={setStartDateDraft}
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="issue-start-time">Start Time</FieldLabel>
+                <TimePicker
+                  id="issue-start-time"
+                  value={startTimeDraft}
+                  onChange={setStartTimeDraft}
+                />
+              </Field>
+            </FieldGroup>
+          </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setStartOpen(false)}>
-              Batal
+              Cancel
             </Button>
             <Button onClick={confirmStart} disabled={!startDateDraft || !startTimeDraft}>
-              Start
+              Submit
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -965,9 +960,6 @@ export function IssueDetail() {
         <DialogContent className="max-w-4xl max-h-[90svh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Close Issue</DialogTitle>
-            <DialogDescription>
-              Tulis resolution dan tentukan waktu selesai #{issue.number}.
-            </DialogDescription>
           </DialogHeader>
           <form className="grid gap-4 py-2 md:grid-cols-[1fr_300px]">
             {/* Kiri: Resolution (Rich Text) */}
@@ -977,7 +969,7 @@ export function IssueDetail() {
                 <RichTextEditor
                   value={closeDraft}
                   onChange={setCloseDraft}
-                  placeholder="cth: Fitting dikencangkan, tekanan kembali normal…"
+                  placeholder="e.g.: Fitting tightened, pressure back to normal…"
                   users={users.map((u) => u.name)}
                   height={300}
                 />
@@ -1004,10 +996,10 @@ export function IssueDetail() {
             </div>
             <DialogFooter className="md:col-span-2">
               <Button variant="outline" onClick={() => setCloseOpen(false)}>
-                Batal
+                Cancel
               </Button>
               <Button onClick={confirmClose} disabled={!closeDraft.trim() || !endDateDraft || !endTimeDraft}>
-                Close
+                Submit
               </Button>
             </DialogFooter>
           </form>
@@ -1018,10 +1010,7 @@ export function IssueDetail() {
       <Dialog open={holdOpen} onOpenChange={setHoldOpen}>
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>On Hold</DialogTitle>
-            <DialogDescription>
-              Tulis alasan menunda #{issue.number}.
-            </DialogDescription>
+            <DialogTitle>Submit</DialogTitle>
           </DialogHeader>
           <FieldGroup>
             <Field>
@@ -1030,7 +1019,7 @@ export function IssueDetail() {
                 id="issue-hold-reason"
                 value={holdDraft}
                 onChange={(e) => setHoldDraft(e.target.value)}
-                placeholder="cth: Menunggu sparepart dari vendor…"
+                placeholder="e.g.: Waiting for spare parts from vendor…"
                 rows={4}
                 className="resize-y"
                 autoFocus
@@ -1039,10 +1028,10 @@ export function IssueDetail() {
           </FieldGroup>
           <DialogFooter>
             <Button variant="outline" onClick={() => setHoldOpen(false)}>
-              Batal
+              Cancel
             </Button>
             <Button onClick={confirmHold} disabled={!holdDraft.trim()}>
-              On Hold
+              Submit
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1050,6 +1039,13 @@ export function IssueDetail() {
 
       {/* Preview attachment */}
       <AttachmentPreviewDialog item={previewItem} onOpenChange={(o) => !o && setPreviewItem(null)} />
+
+      {/* Upload attachment */}
+      <FileUploadDialog
+        open={uploadDialogOpen}
+        onOpenChange={setUploadDialogOpen}
+        onFilesSelected={onPickFiles}
+      />
 
       {/* Cancel — konfirmasi */}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
@@ -1110,14 +1106,14 @@ export function IssueDetail() {
                   </span>
                 )}
               </FieldLabel>
-              <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+              <div className="space-y-2 min-w-0 w-full">
                 {dialogAssignees.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 px-2.5 pt-2.5">
+                  <div className="flex gap-1.5 overflow-x-auto w-full scrollbar-hide pb-1" style={{ scrollbarWidth: 'none' }}>
                     {dialogAssignees.map((name) => (
                       <Badge
                         key={name}
                         variant="secondary"
-                        className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal"
+                        className="inline-flex items-center gap-1.5 rounded-full py-1 pr-1 pl-1.5 font-normal flex-shrink-0"
                       >
                         <Avatar className="h-4 w-4">
                           <AvatarFallback className={`text-[8px] ${avatarColor(name)}`}>
@@ -1137,69 +1133,68 @@ export function IssueDetail() {
                     ))}
                   </div>
                 )}
-                <div className="relative">
-                  <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    ref={pickerInputRef}
-                    id="assignee-picker"
-                    value={pickerQuery}
-                    onChange={(e) => setPickerQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
-                        e.preventDefault();
-                        if (pickerSuggestions.length > 0) {
-                          addAssignee(pickerSuggestions[0].name);
-                        } else if (pickerQuery.trim()) {
-                          addAssignee(pickerQuery);
+                <div className="rounded-xl border bg-background transition-shadow focus-within:ring-1 focus-within:ring-ring">
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      ref={pickerInputRef}
+                      id="assignee-picker"
+                      value={pickerQuery}
+                      onChange={(e) => setPickerQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === "Tab" || e.key === ",") {
+                          e.preventDefault();
+                          if (pickerSuggestions.length > 0) {
+                            addAssignee(pickerSuggestions[0].name);
+                          } else if (pickerQuery.trim()) {
+                            addAssignee(pickerQuery);
+                          }
+                        } else if (
+                          e.key === "Backspace" &&
+                          pickerQuery === "" &&
+                          dialogAssignees.length > 0
+                        ) {
+                          removeAssignee(dialogAssignees[dialogAssignees.length - 1]);
                         }
-                      } else if (
-                        e.key === "Backspace" &&
-                        pickerQuery === "" &&
+                      }}
+                      placeholder={
                         dialogAssignees.length > 0
-                      ) {
-                        removeAssignee(dialogAssignees[dialogAssignees.length - 1]);
+                          ? "Add more…"
+                          : "Search people by name…"
                       }
-                    }}
-                    placeholder={
-                      dialogAssignees.length > 0
-                        ? "Search to add more people…"
-                        : "Search people by name…"
-                    }
-                    autoComplete="off"
-                    className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
-                  />
-                  {pickerSuggestions.length > 0 && (
-                    <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
-                      {pickerSuggestions.slice(0, 3).map((u) => (
-                        <button
-                          key={u.id}
-                          type="button"
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            addAssignee(u.name);
-                          }}
-                          className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
-                        >
-                          <Avatar className="h-7 w-7">
-                            <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
-                              {initials(u.name)}
-                            </AvatarFallback>
-                          </Avatar>
-                          <span className="min-w-0 flex-1">
-                            <span className="block truncate font-medium">{u.name}</span>
-                            <span className="block truncate text-xs text-muted-foreground">
-                              @{u.name.toLowerCase().replace(/\s+/g, "")}
+                      autoComplete="off"
+                      className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
+                    />
+                    {pickerSuggestions.length > 0 && (
+                      <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
+                        {pickerSuggestions.slice(0, 3).map((u) => (
+                          <button
+                            key={u.id}
+                            type="button"
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              addAssignee(u.name);
+                            }}
+                            className="flex w-full items-center gap-2.5 rounded-md px-2 py-2 text-left text-sm hover:bg-accent"
+                          >
+                            <Avatar className="h-7 w-7">
+                              <AvatarFallback className={`text-[10px] ${avatarColor(u.name)}`}>
+                                {initials(u.name)}
+                              </AvatarFallback>
+                            </Avatar>
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium">{u.name}</span>
+                              <span className="block truncate text-xs text-muted-foreground">
+                                @{u.name.toLowerCase().replace(/\s+/g, "")}
+                              </span>
                             </span>
-                          </span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Type @ to search, press Enter to add.
-              </p>
             </Field>
             <Field>
               <FieldLabel htmlFor="issue-assignee-comment">Comment <span className="font-normal text-muted-foreground">(optional)</span></FieldLabel>

@@ -13,7 +13,7 @@ export function Development({ title, icon: Icon }: { title: string; icon: typeof
       </p>
       <div className="mt-6 flex gap-3">
         <button className="text-sm text-primary hover:underline">Lihat roadmap</button>
-        <button className="text-sm text-muted-foreground hover:text-foreground">Kembali ke Dashboard</button>
+        <button className="text-sm text-muted-foreground hover:text-foreground">Back to Dashboard</button>
       </div>
     </div>
   );

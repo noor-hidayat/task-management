@@ -89,7 +89,7 @@ export function Settings() {
       setError("");
       setSaved(true);
     } else {
-      setError("Gagal menyimpan profil.");
+      setError("Failed to save profile.");
     }
   };
 
@@ -102,7 +102,7 @@ export function Settings() {
       {saved && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2.5 text-sm text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950 dark:text-emerald-200">
           <CheckCircle2 className="h-4 w-4 shrink-0" />
-          Profil berhasil diperbarui.
+          Profile updated successfully.
         </div>
       )}
 
@@ -129,7 +129,7 @@ export function Settings() {
         <CardContent>
           <form onSubmit={handleSubmit} className="grid gap-4 sm:max-w-md">
             <div className="grid gap-2">
-              <Label htmlFor="profile-name">Nama</Label>
+              <Label htmlFor="profile-name">Name</Label>
               <Input
                 id="profile-name"
                 value={name}
@@ -137,7 +137,7 @@ export function Settings() {
                   setName(e.target.value);
                   setSaved(false);
                 }}
-                placeholder="cth: Operator A"
+                placeholder="e.g.: Operator A"
                 autoComplete="name"
               />
             </div>
@@ -150,16 +150,16 @@ export function Settings() {
                   setUsername(e.target.value.toLowerCase().replace(/\s+/g, "_"));
                   setSaved(false);
                 }}
-                placeholder="cth: operator_a"
+                placeholder="e.g.: operator_a"
                 maxLength={20}
                 autoComplete="username"
               />
               {usernameTaken && (
-                <p className="text-xs text-destructive">Username sudah dipakai user lain.</p>
+                <p className="text-xs text-destructive">Username is already taken by another user.</p>
               )}
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="profile-password">Password baru</Label>
+              <Label htmlFor="profile-password">New Password</Label>
               <Input
                 id="profile-password"
                 type="password"
@@ -168,12 +168,12 @@ export function Settings() {
                   setPassword(e.target.value);
                   setSaved(false);
                 }}
-                placeholder="Kosongkan jika tidak diubah"
+                placeholder="Leave empty to keep current password"
                 autoComplete="new-password"
               />
             </div>
             <div className="grid gap-2">
-              <Label htmlFor="profile-confirm">Konfirmasi password</Label>
+              <Label htmlFor="profile-confirm">Confirm Password</Label>
               <Input
                 id="profile-confirm"
                 type="password"
@@ -182,11 +182,11 @@ export function Settings() {
                   setConfirm(e.target.value);
                   setSaved(false);
                 }}
-                placeholder="Ulangi password baru"
+                placeholder="Repeat new password"
                 autoComplete="new-password"
               />
               {passwordMismatch && (
-                <p className="text-xs text-destructive">Konfirmasi password tidak cocok.</p>
+                <p className="text-xs text-destructive">Password confirmation does not match.</p>
               )}
             </div>
             {error && <p className="text-xs text-destructive">{error}</p>}
@@ -202,8 +202,8 @@ export function Settings() {
       {isAdmin && (
         <Card>
           <CardHeader>
-            <CardTitle>Manajemen User</CardTitle>
-            <CardDescription>Kelola user, role, dan akses — khusus administrator.</CardDescription>
+            <CardTitle>User Management</CardTitle>
+            <CardDescription>Manage users, roles, and access — administrators only.</CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild>

@@ -24,7 +24,7 @@ export function AskAiDialog({
   >([
     {
       role: "ai",
-      text: "Halo! Saya asisten operasional (mock). Tanya mis. “Pekerjaan apa yang overdue hari ini?” atau “Siapa di Shift 2?”",
+      text: "Hello! I'm your operational assistant (mock). Ask e.g. \"What work is overdue today?\" or \"Who is in Shift 2?\"",
     },
   ]);
 
@@ -53,7 +53,7 @@ export function AskAiDialog({
       { role: "user", text },
       {
         role: "ai",
-        text: "Backend AI belum tersambung (Phase 3). Jawaban mock: 1 task overdue (TK-000124 follow-up), 2 task in progress — cek My Work.",
+        text: "AI backend not connected yet (Phase 3). Mock answer: 1 task overdue (TK-000124 follow-up), 2 tasks in progress — check My Work.",
       },
     ]);
     setQ("");
@@ -89,7 +89,7 @@ export function AskAiDialog({
         </div>
         <div className="flex shrink-0 gap-2">
           <Input
-            placeholder="Tanya tentang pekerjaan / shift..."
+            placeholder="Ask about work / shift..."
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
