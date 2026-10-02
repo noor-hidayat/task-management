@@ -26,39 +26,31 @@ import {
 /*  Date Range Types                                                   */
 /* ------------------------------------------------------------------ */
 
-type DateRangeKey = "today" | "week" | "month" | "custom";
+type DateRangeKey = "today" | "weekly" | "monthly" | "custom";
 
 function getDateRange(key: DateRangeKey, now = new Date()): { start: Date; end: Date; label: string } {
   const startOfDay = (d: Date) => { const c = new Date(d); c.setHours(0, 0, 0, 0); return c; };
   const endOfDay = (d: Date) => { const c = new Date(d); c.setHours(23, 59, 59, 999); return c; };
 
+  const end = endOfDay(now);
+  const label = (d: Date) => d.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" });
+
   switch (key) {
     case "today": {
-      return { start: startOfDay(now), end: endOfDay(now), label: `${now.toLocaleDateString("id-ID", { day: "numeric", month: "short", year: "numeric" })}` };
+      return { start: startOfDay(now), end, label: label(now) };
     }
-    case "week": {
-      const day = now.getDay();
-      const monday = new Date(now);
-      monday.setDate(now.getDate() - (day === 0 ? 6 : day - 1));
-      const sunday = new Date(monday);
-      sunday.setDate(monday.getDate() + 6);
-      return {
-        start: startOfDay(monday),
-        end: endOfDay(sunday),
-        label: `${monday.getDate()} ${monday.toLocaleDateString("id-ID", { month: "short" })} – ${sunday.getDate()} ${sunday.toLocaleDateString("id-ID", { month: "short", year: "numeric" })}`,
-      };
+    case "weekly": {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 6);
+      return { start: startOfDay(start), end, label: `${label(start)} – ${label(now)}` };
     }
-    case "month": {
-      const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-      const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-      return {
-        start: startOfDay(firstDay),
-        end: endOfDay(lastDay),
-        label: `${firstDay.getDate()} ${firstDay.toLocaleDateString("id-ID", { month: "short" })} – ${lastDay.getDate()} ${lastDay.toLocaleDateString("id-ID", { month: "short", year: "numeric" })}`,
-      };
+    case "monthly": {
+      const start = new Date(now);
+      start.setDate(start.getDate() - 29);
+      return { start: startOfDay(start), end, label: `${label(start)} – ${label(now)}` };
     }
     case "custom": {
-      return { start: startOfDay(now), end: endOfDay(now), label: "Custom Range" };
+      return { start: startOfDay(now), end, label: label(now) };
     }
   }
 }
@@ -109,7 +101,7 @@ export function Report() {
   const { data: users } = useUsers();
   const isLoading = worksLoading || issuesLoading;
 
-  const [dateRange, setDateRange] = React.useState<DateRangeKey>("month");
+  const [dateRange, setDateRange] = React.useState<DateRangeKey>("monthly");
   const [activeTab, setActiveTab] = React.useState("overview");
   const [customStart, setCustomStart] = React.useState("");
   const [customEnd, setCustomEnd] = React.useState("");
@@ -188,66 +180,51 @@ export function Report() {
       .map(([name, value], idx) => ({ name, value, color: colors[idx % colors.length] }));
   }, [filteredIssues]);
 
-  // Trend (daily last 7 days)
+  // Trend (daily buckets within global date range)
   const trendData = React.useMemo(() => {
-    const buckets: { date: string; created: number; completed: number }[] = [];
-    for (let i = 6; i >= 0; i--) {
-      const d = new Date(today);
-      d.setDate(d.getDate() - i);
-      buckets.push({ date: `${d.getDate()}/${d.getMonth() + 1}`, created: 0, completed: 0 });
-    }
-
     const startOfDay = (d: Date) => { const c = new Date(d); c.setHours(0, 0, 0, 0); return c; };
     const endOfDay = (d: Date) => { const c = new Date(d); c.setHours(23, 59, 59, 999); return c; };
 
+    const buckets: { date: string; start: number; end: number; created: number; completed: number }[] = [];
+
+    const cursor = startOfDay(range.start);
+    const last = endOfDay(range.end);
+    while (cursor.getTime() <= last.getTime()) {
+      buckets.push({
+        date: cursor.toLocaleDateString("id-ID", { day: "2-digit", month: "short" }),
+        start: startOfDay(cursor).getTime(),
+        end: endOfDay(cursor).getTime(),
+        created: 0,
+        completed: 0,
+      });
+      cursor.setDate(cursor.getDate() + 1);
+    }
+
+    const bump = (time: number, field: "created" | "completed") => {
+      const idx = buckets.findIndex((b) => time >= b.start && time <= b.end);
+      if (idx >= 0) buckets[idx][field]++;
+    };
+
     filteredWorks.forEach((w) => {
       const created = parseMockDate(w.createdAt);
-      if (created) {
-        const idx = buckets.findIndex((b) => {
-          const [day, month] = b.date.split("/").map(Number);
-          const bd = new Date(today.getFullYear(), month - 1, day);
-          return created.getTime() >= startOfDay(bd).getTime() && created.getTime() <= endOfDay(bd).getTime();
-        });
-        if (idx >= 0) buckets[idx].created++;
-      }
+      if (created) bump(created.getTime(), "created");
       if (w.status === "completed") {
         const completed = parseMockDate(w.updatedAt);
-        if (completed) {
-          const idx = buckets.findIndex((b) => {
-            const [day, month] = b.date.split("/").map(Number);
-            const bd = new Date(today.getFullYear(), month - 1, day);
-            return completed.getTime() >= startOfDay(bd).getTime() && completed.getTime() <= endOfDay(bd).getTime();
-          });
-          if (idx >= 0) buckets[idx].completed++;
-        }
+        if (completed) bump(completed.getTime(), "completed");
       }
     });
 
     filteredIssues.forEach((i) => {
       const created = parseMockDate(i.createdAt);
-      if (created) {
-        const idx = buckets.findIndex((b) => {
-          const [day, month] = b.date.split("/").map(Number);
-          const bd = new Date(today.getFullYear(), month - 1, day);
-          return created.getTime() >= startOfDay(bd).getTime() && created.getTime() <= endOfDay(bd).getTime();
-        });
-        if (idx >= 0) buckets[idx].created++;
-      }
+      if (created) bump(created.getTime(), "created");
       if (i.status === "closed") {
         const closed = parseMockDate(i.closedAt || i.updatedAt);
-        if (closed) {
-          const idx = buckets.findIndex((b) => {
-            const [day, month] = b.date.split("/").map(Number);
-            const bd = new Date(today.getFullYear(), month - 1, day);
-            return closed.getTime() >= startOfDay(bd).getTime() && closed.getTime() <= endOfDay(bd).getTime();
-          });
-          if (idx >= 0) buckets[idx].completed++;
-        }
+        if (closed) bump(closed.getTime(), "completed");
       }
     });
 
-    return buckets;
-  }, [filteredWorks, filteredIssues, today]);
+    return buckets.map(({ date, created, completed }) => ({ date, created, completed }));
+  }, [filteredWorks, filteredIssues, range]);
 
   // User workload (top 5)
   const userWorkloadData = React.useMemo(() => {
@@ -303,7 +280,6 @@ export function Report() {
         <div className="flex justify-between items-start">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Reports Dashboard</h1>
-            <p className="text-sm text-muted-foreground mt-1">Issue Performance & Analytics</p>
           </div>
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -321,7 +297,6 @@ export function Report() {
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Reports Dashboard</h1>
-          <p className="text-sm text-muted-foreground mt-1">Issue Performance & Analytics</p>
         </div>
         <div className="flex flex-col items-end gap-3">
           <div className="flex gap-2">
@@ -334,20 +309,20 @@ export function Report() {
               Today
             </Button>
             <Button
-              variant={dateRange === "week" ? "default" : "outline"}
+              variant={dateRange === "weekly" ? "default" : "outline"}
               size="sm"
-              onClick={() => setDateRange("week")}
+              onClick={() => setDateRange("weekly")}
               className="h-9"
             >
-              This Week
+              Weekly
             </Button>
             <Button
-              variant={dateRange === "month" ? "default" : "outline"}
+              variant={dateRange === "monthly" ? "default" : "outline"}
               size="sm"
-              onClick={() => setDateRange("month")}
+              onClick={() => setDateRange("monthly")}
               className="h-9"
             >
-              This Month
+              Monthly
             </Button>
             <Button
               variant={dateRange === "custom" ? "default" : "outline"}
@@ -378,11 +353,8 @@ export function Report() {
               </Button>
             </div>
           )}
-          <p className="text-xs text-muted-foreground">
-            Showing: <span className="font-medium text-foreground">{range.label}</span>
-          </p>
+          </div>
         </div>
-      </div>
 
       {/* Tabs */}
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
@@ -459,7 +431,6 @@ export function Report() {
             <Card>
               <CardHeader>
                 <CardTitle className="text-lg">Issue Type Breakdown</CardTitle>
-                <CardDescription>Jenis masalah terbanyak</CardDescription>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={260}>
@@ -493,7 +464,7 @@ export function Report() {
             {/* Trend Line Chart */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Issue Creation vs Resolution (Last 7 Days)</CardTitle>
+                <CardTitle className="text-lg">Issue Creation vs Resolution</CardTitle>
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={260}>
@@ -520,7 +491,7 @@ export function Report() {
             {/* Plant Hotspot */}
             <Card>
               <CardHeader>
-                <CardTitle className="text-lg">Issue Hotspot by Plant</CardTitle>
+                <CardTitle className="text-lg">Issue by Plant</CardTitle>
               </CardHeader>
               <CardContent>
                 {plantData.length > 0 ? (
