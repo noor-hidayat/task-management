@@ -1,56 +1,43 @@
-import { Link } from "react-router-dom";
+import { useMemo, useState, type ReactNode } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import {
   AlertTriangle,
-  CheckCircle2,
-  Inbox,
-  Plus,
+  ArrowRight,
+  CalendarClock,
+  Circle,
+  Clock,
   Loader2,
+  Plus,
+  type LucideIcon,
 } from "lucide-react";
-import { PageHeader } from "@/components/page-header";
-import { PageSkeleton } from "@/components/page-skeleton";
-import { StatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Separator } from "@/components/ui/separator";
+
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { initials, statusLabel, priorityLabel, avatarColor } from "@/lib/format";
-import { useUsers, useWorks } from "@/hooks/useSupabaseLists";
-import type { User, WorkItem, WorkStatus, Priority } from "@/types";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageSkeleton } from "@/components/page-skeleton";
+import { IssueStatusBadge, StatusBadge } from "@/components/status-badge";
+import { TaskFormDialog, toDMY, type TaskFormValues } from "@/components/task-form-dialog";
+import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
+import { useAuth } from "@/contexts/AuthContext";
+import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
+import { createWork } from "@/lib/api/works";
+import { createIssue } from "@/lib/api/issues";
+import { notifyMentions, pushNotification } from "@/lib/api/notifications";
+import { listProfiles } from "@/lib/api/profiles";
+import { avatarColor, initials } from "@/lib/format";
+import type { Issue, WorkItem, WorkStatus } from "@/types";
 
 /* ------------------------------------------------------------------ */
 /*  Helpers                                                            */
 /* ------------------------------------------------------------------ */
-
-const STATUS_ORDER: WorkStatus[] = ["todo", "in_progress", "completed"];
-
-const STATUS_COLORS: Record<WorkStatus, string> = {
-  todo: "#94a3b8",
-  in_progress: "#3b82f6",
-  completed: "#22c55e",
-};
 
 const MONTHS: Record<string, number> = {
   Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
   Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11,
 };
 
-/** Parse "26 Sep 2026[ 14:45]" (format DMY aplikasi) → Date | null. */
-function parseDMY(value: string | undefined | null): Date | null {
+/** Parse "26 Sep 2026[ 14:45]" (format aplikasi) → Date | null. */
+function parseStamp(value: string | undefined | null): Date | null {
   if (!value) return null;
   const m = value.trim().match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})(?:\s+(\d{1,2}):(\d{2}))?/);
   if (!m) {
@@ -68,428 +55,483 @@ function startOfDay(d: Date) {
   return c;
 }
 
-/** Overdue beneran: belum selesai, tidak cancelled, dueDate < hari ini. */
 function isOverdueTask(t: WorkItem, today: Date) {
   if (t.cancelled || t.status === "completed") return false;
-  const due = parseDMY(t.dueDate);
+  const due = parseStamp(t.dueDate);
   if (!due) return false;
   return startOfDay(due) < startOfDay(today);
 }
 
-/** Simple donut SVG */
-function DonutChart({
-  data,
-  size = 160,
-  strokeWidth = 24,
-}: {
-  data: { label: string; value: number; color: string }[];
-  size?: number;
-  strokeWidth?: number;
-}) {
-  const total = data.reduce((s, d) => s + d.value, 0);
-  const denom = total || 1; // hanya untuk matematika render, teks tetap tampilkan total asli
-  const r = (size - strokeWidth * 2) / 2;
-  const c = size / 2;
-  const circ = 2 * Math.PI * r;
-
-  let offset = 0;
-  const segments = data.map((d) => {
-    const pct = d.value / denom;
-    const len = circ * pct;
-    const seg = {
-      ...d,
-      dash: `${len} ${circ - len}`,
-      rotate: (offset / circ) * 360 - 90,
-    };
-    offset += len;
-    return seg;
-  });
-
-  return (
-    <div className="flex flex-col items-center gap-3">
-      <svg width={size} height={size} className="-rotate-90">
-        <circle
-          cx={c}
-          cy={c}
-          r={r}
-          fill="none"
-          stroke="hsl(var(--muted))"
-          strokeWidth={strokeWidth}
-        />
-        {segments.map((s, i) => (
-          <circle
-            key={i}
-            cx={c}
-            cy={c}
-            r={r}
-            fill="none"
-            stroke={s.color}
-            strokeWidth={strokeWidth}
-            strokeDasharray={s.dash}
-            style={{ transformOrigin: `${c}px ${c}px`, transform: `rotate(${s.rotate}deg)` }}
-            strokeLinecap="round"
-          />
-        ))}
-        <text
-          x={c}
-          y={c + 6}
-          textAnchor="middle"
-          className="fill-foreground text-2xl font-bold"
-          dominantBaseline="middle"
-        >
-          {total}
-        </text>
-      </svg>
-      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1">
-        {data.map((d) => (
-          <span key={d.label} className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: d.color }} />
-            {d.label} ({d.value})
-          </span>
-        ))}
-      </div>
-    </div>
-  );
+function relativeTime(date: Date | null): string {
+  if (!date) return "";
+  const diff = Date.now() - date.getTime();
+  const min = Math.floor(diff / 60000);
+  if (min < 1) return "baru saja";
+  if (min < 60) return `${min} menit lalu`;
+  const hours = Math.floor(min / 60);
+  if (hours < 24) return `${hours} jam lalu`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days} hari lalu`;
+  return `${Math.floor(days / 30)} bulan lalu`;
 }
 
-/** Simple line chart SVG */
-function LineChart({
-  points,
-  labels,
-  color = "#3b82f6",
-  height = 140,
-}: {
-  points: number[];
-  labels?: string[];
-  color?: string;
-  height?: number;
-}) {
-  const max = Math.max(...points, 1);
-  const w = Math.max(points.length * 60, 300);
-  const h = height;
-  const pad = 20;
-  const stepX = (w - pad * 2) / Math.max(points.length - 1, 1);
-
-  const coords = points.map((p, i) => ({
-    x: pad + i * stepX,
-    y: h - pad - ((p / max) * (h - pad * 2)),
-  }));
-
-  const pathD =
-    coords.length > 1
-      ? coords.map((c, i) => `${i === 0 ? "M" : "L"} ${c.x} ${c.y}`).join(" ")
-      : "";
-
-  const areaD = pathD ? `${pathD} L ${coords[coords.length - 1].x} ${h - pad} L ${coords[0].x} ${h - pad} Z` : "";
-
-  return (
-    <svg width="100%" height={h} viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="xMidYMid meet">
-      {/* grid */}
-      {[0, 0.25, 0.5, 0.75, 1].map((t) => {
-        const y = h - pad - t * (h - pad * 2);
-        return (
-          <line key={t} x1={pad} y1={y} x2={w - pad} y2={y} stroke="hsl(var(--border))" strokeDasharray="4 4" />
-        );
-      })}
-      {/* area */}
-      {areaD && <path d={areaD} fill={`${color}15`} />}
-      {/* line */}
-      {pathD && <path d={pathD} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" />}
-      {/* dots */}
-      {coords.map((c, i) => (
-        <g key={i}>
-          <circle cx={c.x} cy={c.y} r={4} fill={color} stroke="white" strokeWidth={1.5} />
-          {labels && (
-            <text x={c.x} y={h - 4} textAnchor="middle" className="fill-muted-foreground [font-size:10px]">
-              {labels[i]}
-            </text>
-          )}
-        </g>
-      ))}
-    </svg>
-  );
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good Morning";
+  if (h < 18) return "Good Afternoon";
+  return "Good Evening";
 }
 
-/* ------------------------------------------------------------------ */
-/*  Stat Cards                                                         */
-/* ------------------------------------------------------------------ */
-
-const statConfig = [
-  { key: "total" as const, label: "Total", icon: Inbox, color: "text-blue-600 bg-blue-50 dark:bg-blue-950" },
-  { key: "completed" as const, label: "Completed", icon: CheckCircle2, color: "text-green-600 bg-green-50 dark:bg-green-950" },
-  { key: "inProgress" as const, label: "In Progress", icon: Loader2, color: "text-sky-600 bg-sky-50 dark:bg-sky-950" },
-  { key: "overdue" as const, label: "Overdue", icon: AlertTriangle, color: "text-red-600 bg-red-50 dark:bg-red-950" },
+const DAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
 ];
 
-function ReportStatCards({ tasks }: { tasks: WorkItem[] }) {
-  const active = tasks.filter((t) => !t.cancelled);
-  const today = new Date();
-  const stats = {
-    total: active.length,
-    completed: active.filter((t) => t.status === "completed").length,
-    inProgress: active.filter((t) => t.status === "in_progress").length,
-    overdue: active.filter((t) => isOverdueTask(t, today)).length,
-  };
-
-  return (
-    <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      {statConfig.map((s) => {
-        const Icon = s.icon;
-        return (
-          <Card key={s.key}>
-            <CardContent className="flex items-center gap-3 p-4">
-              <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${s.color}`}>
-                <Icon className="h-5 w-5" />
-              </div>
-              <div>
-                <p className="text-xs text-muted-foreground">{s.label}</p>
-                <p className="text-xl font-bold tabular-nums">{stats[s.key]}</p>
-              </div>
-            </CardContent>
-          </Card>
-        );
-      })}
-    </div>
-  );
+function longDate(d: Date): string {
+  return `${DAY_NAMES[d.getDay()]}, ${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /* ------------------------------------------------------------------ */
-/*  Task Completion Donut + Trend Line                                 */
+/*  KPI cards                                                          */
 /* ------------------------------------------------------------------ */
 
-function CompletionSection({ tasks }: { tasks: WorkItem[] }) {
-  const active = tasks.filter((t) => !t.cancelled);
-  const donutData = STATUS_ORDER.map((s) => ({
-    label: statusLabel[s],
-    value: active.filter((t) => t.status === s).length,
-    color: STATUS_COLORS[s],
-  }));
-
-  // Tren real: jumlah task completed per hari selama 7 hari terakhir (berdasar updatedAt).
-  const DAY_NAMES = ["Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab"];
-  const days: Date[] = Array.from({ length: 7 }, (_, i) => {
-    const d = startOfDay(new Date());
-    d.setDate(d.getDate() - (6 - i));
-    return d;
-  });
-  const trendPoints = days.map((day) => {
-    const next = new Date(day);
-    next.setDate(next.getDate() + 1);
-    return active.filter((t) => {
-      if (t.status !== "completed") return false;
-      const done = parseDMY(t.updatedAt);
-      return !!done && done.getTime() >= day.getTime() && done.getTime() < next.getTime();
-    }).length;
-  });
-  const trendLabels = days.map((d) => DAY_NAMES[d.getDay()]);
-
-  return (
-    <div className="grid gap-4 lg:grid-cols-2">
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Task Completion</CardTitle>
-          <CardDescription>Distribusi status task saat ini</CardDescription>
-        </CardHeader>
-        <CardContent className="flex items-center justify-center py-4">
-          <DonutChart data={donutData} />
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-base">Task Trend</CardTitle>
-          <CardDescription>Task selesai 7 hari terakhir</CardDescription>
-        </CardHeader>
-        <CardContent className="py-4">
-          <LineChart points={trendPoints} labels={trendLabels} color="#22c55e" />
-        </CardContent>
-      </Card>
-    </div>
-  );
-}
-
-/* ------------------------------------------------------------------ */
-/*  Task by Operator Table                                             */
-/* ------------------------------------------------------------------ */
-
-function OperatorTable({ tasks, allUsers }: { tasks: WorkItem[]; allUsers: User[] }) {
-  const operatorMap = new Map<string, { name: string; total: number; byStatus: Partial<Record<WorkStatus, number>>; byPriority: Partial<Record<Priority, number>> }>();
-
-  allUsers.forEach((u) =>
-    operatorMap.set(u.name, { name: u.name, total: 0, byStatus: {}, byPriority: {} })
-  );
-
-  tasks.filter((t) => !t.cancelled).forEach((t) => {
-    const entry = operatorMap.get(t.assignedTo);
-    if (!entry) return;
-    entry.total++;
-    entry.byStatus[t.status] = (entry.byStatus[t.status] ?? 0) + 1;
-    entry.byPriority[t.priority] = (entry.byPriority[t.priority] ?? 0) + 1;
-  });
-
-  const rows = Array.from(operatorMap.values()).sort((a, b) => b.total - a.total);
-
+function KpiCard({ label, value, icon: Icon, tone }: { label: string; value: number; icon: LucideIcon; tone?: "danger" }) {
   return (
     <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Task by Operator</CardTitle>
-        <CardDescription>Rangkuman task per operator</CardDescription>
-      </CardHeader>
-      <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Operator</TableHead>
-              <TableHead className="text-center">Total</TableHead>
-              <TableHead className="text-center">To Do</TableHead>
-              <TableHead className="text-center">In Progress</TableHead>
-              <TableHead className="text-center">Completed</TableHead>
-              <TableHead className="text-center">High</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((r) => (
-              <TableRow key={r.name}>
-                <TableCell>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-7 w-7">
-                      <AvatarFallback className={`text-[10px] ${avatarColor(r.name)}`}>{initials(r.name)}</AvatarFallback>
-                    </Avatar>
-                    <span className="font-medium">{r.name}</span>
-                  </div>
-                </TableCell>
-                <TableCell className="text-center font-semibold tabular-nums">{r.total}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.byStatus.todo ?? 0}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.byStatus.in_progress ?? 0}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.byStatus.completed ?? 0}</TableCell>
-                <TableCell className="text-center tabular-nums">{r.byPriority.high ?? 0}</TableCell>
-              </TableRow>
-            ))}
-            {rows.length === 0 && (
-              <TableRow>
-                  <TableCell colSpan={6} className="h-16 text-center text-sm text-muted-foreground">
-                  Belum ada data.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
+      <CardContent className="flex items-center justify-between p-4">
+        <div className="space-y-1">
+          <p className="text-xs font-medium text-muted-foreground">{label}</p>
+          <p className={`text-3xl font-bold tracking-tight tabular-nums ${tone === "danger" && value > 0 ? "text-red-500" : ""}`}>
+            {value}
+          </p>
+        </div>
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+          <Icon className="h-5 w-5" />
+        </div>
       </CardContent>
     </Card>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Overdue Tasks Table                                                */
+/*  Mini list row (My Work)                                            */
 /* ------------------------------------------------------------------ */
 
-function OverdueTasksTable({ tasks }: { tasks: WorkItem[] }) {
-  const today = new Date();
-  const overdue = tasks
-    .filter((t) => isOverdueTask(t, today))
-    .sort((a, b) => {
-      const da = parseDMY(a.dueDate)?.getTime() ?? 0;
-      const db = parseDMY(b.dueDate)?.getTime() ?? 0;
-      return da - db; // paling lama overdue di atas
-    })
-    .slice(0, 8); // show up to 8
-
+function MiniRow({ to, title, badge }: { to: string; title: string; badge: ReactNode }) {
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base">Overdue Tasks</CardTitle>
-        <CardDescription>Task yang melewati batas waktu atau perlu perhatian</CardDescription>
-      </CardHeader>
-      <CardContent className="p-0">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Task</TableHead>
-              <TableHead>Assignee</TableHead>
-              <TableHead>Priority</TableHead>
-              <TableHead>Status</TableHead>
-              <TableHead>Due Date</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {overdue.map((t) => (
-              <TableRow key={t.id}>
-                <TableCell>
-                  <Link to={`/tasks/${t.number}`} className="hover:underline font-medium">
-                    {t.title}
-                  </Link>
-                  <p className="text-[11px] text-muted-foreground font-mono">{t.number}</p>
-                </TableCell>
-                <TableCell>
-                  <div className="flex items-center gap-1.5">
-                    <Avatar className="h-6 w-6">
-                      <AvatarFallback className={`text-[10px] ${avatarColor(t.assignedTo)}`}>{initials(t.assignedTo)}</AvatarFallback>
-                    </Avatar>
-                    <span className="text-xs">{t.assignedTo}</span>
-                  </div>
-                </TableCell>
-                <TableCell><Badge variant="outline" className="text-[11px]">{priorityLabel[t.priority]}</Badge></TableCell>
-                <TableCell><StatusBadge status={t.status} /></TableCell>
-                <TableCell className="text-xs whitespace-nowrap">{t.dueDate}</TableCell>
-              </TableRow>
-            ))}
-            {overdue.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={5} className="h-16 text-center text-sm text-muted-foreground">
-                  Tidak ada task overdue.
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </CardContent>
-    </Card>
+    <Link
+      to={to}
+      className="flex items-center justify-between gap-3 rounded-lg px-2 py-2 transition-colors hover:bg-muted/50"
+    >
+      <span className="min-w-0 flex-1 truncate text-sm">{title}</span>
+      <span className="shrink-0">{badge}</span>
+    </Link>
   );
 }
 
 /* ------------------------------------------------------------------ */
-/*  Main Report Page                                                   */
+/*  Main Dashboard                                                     */
 /* ------------------------------------------------------------------ */
 
 export function Dashboard() {
-  const { data: tasks, loading: tasksLoading } = useWorks();
-  const { data: users, loading: usersLoading } = useUsers();
-  const isLoading = tasksLoading || usersLoading;
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { data: works, loading: worksLoading } = useWorks();
+  const { data: issues, loading: issuesLoading } = useIssues();
+  const isLoading = worksLoading || issuesLoading;
+
+  const [taskOpen, setTaskOpen] = useState(false);
+  const [issueOpen, setIssueOpen] = useState(false);
+
+  const me = user?.name ?? "";
+
+  /* ── Personal scope ── */
+  const { myTasks, myIssues } = useMemo(() => {
+    const tasks = works.filter((w) => w.assignedTo === me && !w.cancelled);
+    const issueItems = issues.filter(
+      (i) => !i.cancelled && (i.assignedTo === me || (i.assignees ?? []).includes(me))
+    );
+    return { myTasks: tasks, myIssues: issueItems };
+  }, [works, issues, me]);
+
+  const today = new Date();
+  const kpis = useMemo(() => {
+    const openTasks = myTasks.filter((t) => t.status !== "completed");
+    const openIssues = myIssues.filter((i) => i.status !== "closed");
+    const inProgress =
+      myTasks.filter((t) => t.status === "in_progress").length +
+      myIssues.filter((i) => i.status === "in_progress").length;
+    const onHold = myIssues.filter((i) => i.status === "on_hold").length;
+    const overdue = myTasks.filter((t) => isOverdueTask(t, today)).length;
+    return {
+      myWork: openTasks.length + openIssues.length,
+      inProgress,
+      onHold,
+      overdue,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [myTasks, myIssues]);
+
+  /* ── Global work status ── */
+  const statusCounts = useMemo(() => {
+    const activeTasks = works.filter((w) => !w.cancelled);
+    const activeIssues = issues.filter((i) => !i.cancelled);
+    return {
+      open:
+        activeTasks.filter((t) => t.status === "todo").length +
+        activeIssues.filter((i) => i.status === "open").length,
+      inProgress:
+        activeTasks.filter((t) => t.status === "in_progress").length +
+        activeIssues.filter((i) => i.status === "in_progress").length,
+      onHold: activeIssues.filter((i) => i.status === "on_hold").length,
+      completed:
+        activeTasks.filter((t) => t.status === "completed").length +
+        activeIssues.filter((i) => i.status === "closed").length,
+    };
+  }, [works, issues]);
+
+  const statusMax = Math.max(
+    statusCounts.open,
+    statusCounts.inProgress,
+    statusCounts.onHold,
+    statusCounts.completed,
+    1
+  );
+
+  /* ── Upcoming (today / tomorrow) ── */
+  const upcoming = useMemo(() => {
+    const t0 = startOfDay(new Date());
+    const t1 = new Date(t0);
+    t1.setDate(t1.getDate() + 1);
+
+    type Up = { id: string; title: string; link: string; day: "today" | "tomorrow" };
+    const items: Up[] = [];
+    for (const t of myTasks) {
+      if (t.status === "completed") continue;
+      const due = parseStamp(t.dueDate);
+      if (!due) continue;
+      const d = startOfDay(due);
+      if (d.getTime() === t0.getTime()) items.push({ id: t.id, title: t.title, link: `/tasks/${t.number}`, day: "today" });
+      else if (d.getTime() === t1.getTime()) items.push({ id: t.id, title: t.title, link: `/tasks/${t.number}`, day: "tomorrow" });
+    }
+    for (const i of myIssues) {
+      if (i.status === "closed") continue;
+      const iso = i.endDateTimeISO ?? i.endDateTime;
+      const due = parseStamp(iso);
+      if (!due) continue;
+      const d = startOfDay(due);
+      if (d.getTime() === t0.getTime()) items.push({ id: i.id, title: i.title, link: `/issues/${i.number}`, day: "today" });
+      else if (d.getTime() === t1.getTime()) items.push({ id: i.id, title: i.title, link: `/issues/${i.number}`, day: "tomorrow" });
+    }
+    return {
+      today: items.filter((i) => i.day === "today").slice(0, 4),
+      tomorrow: items.filter((i) => i.day === "tomorrow").slice(0, 4),
+    };
+  }, [myTasks, myIssues]);
+
+  /* ── Recent activity ── */
+  const recentActivity = useMemo(() => {
+    type Row = { id: string; actor: string; text: string; at: Date | null };
+    const rows: Row[] = [];
+    for (const w of works) for (const a of w.activities ?? []) rows.push({ id: `w-${a.id}`, actor: a.actor, text: a.text, at: parseStamp(a.at) });
+    for (const i of issues) for (const a of i.activities ?? []) rows.push({ id: `i-${a.id}`, actor: a.actor, text: a.text, at: parseStamp(a.at) });
+    return rows
+      .sort((a, b) => (b.at?.getTime() ?? 0) - (a.at?.getTime() ?? 0))
+      .slice(0, 6);
+  }, [works, issues]);
+
+  /* ── Create handlers ── */
+  const handleCreateTask = async (v: TaskFormValues) => {
+    if (!user) return;
+    const profiles = await listProfiles();
+    const assignee = profiles.find((u) => u.name === v.assignedTo);
+    const work = await createWork({
+      title: v.title,
+      type: "adhoc",
+      priority: v.priority,
+      status: "todo",
+      assignedToId: assignee?.id ?? user.id,
+      teamId: v.teamId || user.teamId || "",
+      shift: user.shift ?? "Shift 1",
+      dueDate: toDMY(v.dueISO),
+      description: v.description,
+      plant: v.plant,
+      location: v.location,
+      evidenceRequired: false,
+      createdById: user.id,
+      checklist: v.checklist.map((c) => c.title),
+    });
+    if (assignee && assignee.id !== user.id) {
+      await pushNotification({
+        type: "assignment",
+        title: "New task assigned",
+        message: work.title,
+        fromId: user.id,
+        forUserId: assignee.id,
+        link: `/tasks/${work.number}`,
+      });
+    }
+    await notifyMentions({
+      content: v.description,
+      users: profiles,
+      fromId: user.id,
+      fromName: user.name,
+      title: "You were mentioned in a task",
+      message: work.title,
+      link: `/tasks/${work.number}`,
+    });
+    setTaskOpen(false);
+    navigate(`/tasks/${work.number}`);
+  };
+
+  const handleCreateIssue = async (v: IssueFormValues) => {
+    if (!user) return;
+    const profiles = await listProfiles();
+    const assigneeIds = v.assignedTo
+      .map((name) => profiles.find((u) => u.name === name)?.id)
+      .filter((id): id is string => !!id);
+    const issue = await createIssue({
+      title: v.title,
+      description: v.description,
+      priority: v.priority,
+      createdById: user.id,
+      assigneeIds,
+      reportedTeamId: v.reportedTeamId,
+      assignedTeamId: v.assignedTeamId,
+      plant: v.plant,
+      location: v.location,
+      issueTypeId: v.issueTypeId,
+    });
+    for (const name of v.assignedTo) {
+      const assignee = profiles.find((u) => u.name === name);
+      if (assignee && assignee.id !== user.id) {
+        await pushNotification({
+          type: "assignment",
+          title: "New issue assigned",
+          message: issue.title,
+          fromId: user.id,
+          forUserId: assignee.id,
+          link: `/issues/${issue.number}`,
+        });
+      }
+    }
+    await notifyMentions({
+      content: v.description,
+      users: profiles,
+      fromId: user.id,
+      fromName: user.name,
+      title: "You were mentioned in an issue",
+      message: issue.title,
+      link: `/issues/${issue.number}`,
+    });
+    setIssueOpen(false);
+    navigate(`/issues/${issue.number}`);
+  };
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <PageSkeleton variant="stats" />
+      </div>
+    );
+  }
+
+  const myTaskList = [...myTasks]
+    .filter((t) => t.status !== "completed")
+    .sort((a, b) => (parseStamp(a.updatedAt)?.getTime() ?? 0) - (parseStamp(b.updatedAt)?.getTime() ?? 0))
+    .slice(0, 4);
+  const myIssueList = [...myIssues]
+    .filter((i) => i.status !== "closed")
+    .sort((a, b) => (parseStamp(a.updatedAt)?.getTime() ?? 0) - (parseStamp(b.updatedAt)?.getTime() ?? 0))
+    .slice(0, 4);
+
+  const statusRows: { label: string; value: number; color: string }[] = [
+    { label: "Open", value: statusCounts.open, color: "var(--chart-1)" },
+    { label: "In Progress", value: statusCounts.inProgress, color: "var(--chart-4)" },
+    { label: "On Hold", value: statusCounts.onHold, color: "var(--chart-3)" },
+    { label: "Completed", value: statusCounts.completed, color: "var(--chart-2)" },
+  ];
 
   return (
     <div className="space-y-6">
-      <PageHeader
-        title="Report"
-        actions={
-          <Button asChild>
-            <Link to="/my-work"><Plus className="mr-2 h-4 w-4" />My Work</Link>
+      {/* ── Header ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="space-y-1">
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {greeting()}, {me.split(" ")[0] || "there"}
+          </h1>
+          <p className="text-sm text-muted-foreground">{longDate(new Date())}</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button size="sm" onClick={() => setTaskOpen(true)}>
+            <Plus className="h-4 w-4" /> New Task
           </Button>
-        }
+          <Button size="sm" variant="outline" onClick={() => setIssueOpen(true)}>
+            <Plus className="h-4 w-4" /> Issue
+          </Button>
+        </div>
+      </div>
+
+      {/* ── KPI ── */}
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="My Work" value={kpis.myWork} icon={Circle} />
+        <KpiCard label="In Progress" value={kpis.inProgress} icon={Loader2} />
+        <KpiCard label="On Hold" value={kpis.onHold} icon={Clock} />
+        <KpiCard label="Overdue" value={kpis.overdue} icon={AlertTriangle} tone="danger" />
+      </div>
+
+      {/* ── My Work ── */}
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="text-base font-semibold tracking-tight">My Work</h2>
+          <Button asChild variant="ghost" size="sm" className="text-muted-foreground">
+            <Link to="/my-work">
+              View All <ArrowRight className="ml-1 h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
+        <div className="grid gap-4 lg:grid-cols-2">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Tasks</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-0.5">
+              {myTaskList.map((t) => (
+                <MiniRow
+                  key={t.id}
+                  to={`/tasks/${t.number}`}
+                  title={t.title}
+                  badge={<StatusBadge status={t.status} />}
+                />
+              ))}
+              {myTaskList.length === 0 && (
+                <p className="rounded-lg border border-dashed py-6 text-center text-xs text-muted-foreground">
+                  Tidak ada task aktif
+                </p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Issues</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-0.5">
+              {myIssueList.map((i) => (
+                <MiniRow
+                  key={i.id}
+                  to={`/issues/${i.number}`}
+                  title={i.title}
+                  badge={<IssueStatusBadge status={i.status} />}
+                />
+              ))}
+              {myIssueList.length === 0 && (
+                <p className="rounded-lg border border-dashed py-6 text-center text-xs text-muted-foreground">
+                  Tidak ada issue aktif
+                </p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      </div>
+
+      {/* ── Work Status + Upcoming ── */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader className="pb-4">
+            <CardTitle className="text-base">Work Status</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3.5">
+            {statusRows.map((s) => (
+              <div key={s.label} className="flex items-center gap-3">
+                <span className="w-24 shrink-0 text-xs text-muted-foreground">{s.label}</span>
+                <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
+                  <div
+                    className="h-full rounded-full transition-all"
+                    style={{ width: `${(s.value / statusMax) * 100}%`, backgroundColor: s.color }}
+                  />
+                </div>
+                <span className="w-6 shrink-0 text-right text-xs font-semibold tabular-nums">{s.value}</span>
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base">Upcoming</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Today</p>
+              {upcoming.today.length > 0 ? (
+                <div className="space-y-0.5">
+                  {upcoming.today.map((u) => (
+                    <Link key={u.id} to={u.link} className="flex items-center gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-muted/50">
+                      <CalendarClock className="h-3.5 w-3.5 shrink-0 text-red-500" />
+                      <span className="truncate">{u.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-1 text-xs text-muted-foreground">Tidak ada</p>
+              )}
+            </div>
+            <div>
+              <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Tomorrow</p>
+              {upcoming.tomorrow.length > 0 ? (
+                <div className="space-y-0.5">
+                  {upcoming.tomorrow.map((u) => (
+                    <Link key={u.id} to={u.link} className="flex items-center gap-2 rounded-md px-1 py-1.5 text-sm hover:bg-muted/50">
+                      <CalendarClock className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+                      <span className="truncate">{u.title}</span>
+                    </Link>
+                  ))}
+                </div>
+              ) : (
+                <p className="px-1 text-xs text-muted-foreground">Tidak ada</p>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* ── Recent Activity ── */}
+      <Card>
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base">Recent Activity</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-0.5">
+          {recentActivity.map((a) => (
+            <div key={a.id} className="flex items-center gap-3 rounded-lg px-2 py-2 hover:bg-muted/50">
+              <Avatar className="h-6 w-6 shrink-0">
+                <AvatarFallback className={`text-[10px] ${avatarColor(a.actor)}`}>{initials(a.actor)}</AvatarFallback>
+              </Avatar>
+              <p className="min-w-0 flex-1 truncate text-sm">
+                <span className="font-medium">{a.actor}</span> <span className="text-muted-foreground">{a.text}</span>
+              </p>
+              <span className="shrink-0 text-xs text-muted-foreground">{relativeTime(a.at)}</span>
+            </div>
+          ))}
+          {recentActivity.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">Belum ada aktivitas.</p>
+          )}
+        </CardContent>
+      </Card>
+
+      <TaskFormDialog
+        open={taskOpen}
+        onOpenChange={setTaskOpen}
+        dialogTitle="New Task"
+        onSubmit={handleCreateTask}
       />
-
-      {isLoading && <PageSkeleton variant="stats" />}
-
-      {!isLoading && (
-        <>
-      {/* ── Stats ── */}
-      <ReportStatCards tasks={tasks} />
-
-      <Separator />
-
-      {/* ── Donut + Line ── */}
-      <CompletionSection tasks={tasks} />
-
-      <Separator />
-
-      {/* ── Task by Operator ── */}
-      <OperatorTable tasks={tasks} allUsers={users} />
-
-      <Separator />
-
-      {/* ── Overdue Tasks ── */}
-      <OverdueTasksTable tasks={tasks} />
-        </>
-      )}
+      <IssueFormDialog
+        open={issueOpen}
+        onOpenChange={setIssueOpen}
+        dialogTitle="New Issue"
+        onSubmit={handleCreateIssue}
+      />
     </div>
   );
 }
