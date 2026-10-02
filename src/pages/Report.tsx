@@ -18,6 +18,7 @@ import {
   CartesianGrid,
   Tooltip,
   Legend,
+  LabelList,
   ResponsiveContainer,
 } from "recharts";
 
@@ -441,9 +442,10 @@ export function Report() {
                     </Pie>
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
+                        backgroundColor: "hsl(var(--popover))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "8px",
+                        color: "hsl(var(--popover-foreground))",
                       }}
                     />
                   </PieChart>
@@ -458,18 +460,21 @@ export function Report() {
               </CardHeader>
               <CardContent>
                 <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={priorityData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" />
-                    <YAxis stroke="hsl(var(--muted-foreground))" />
+                  <BarChart data={priorityData} margin={{ top: 20, right: 20, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                    <XAxis dataKey="name" stroke="hsl(var(--muted-foreground))" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 13 }} />
+                    <YAxis stroke="hsl(var(--muted-foreground))" allowDecimals={false} tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }} />
                     <Tooltip
+                      cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
                       contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
+                        backgroundColor: "hsl(var(--popover))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "8px",
+                        color: "hsl(var(--popover-foreground))",
                       }}
                     />
-                    <Bar dataKey="value" radius={[8, 8, 0, 0]}>
+                    <Bar dataKey="value" radius={[8, 8, 0, 0]} maxBarSize={80}>
+                      <LabelList dataKey="value" position="top" fill="hsl(var(--foreground))" fontSize={14} fontWeight={600} />
                       {priorityData.map((entry, index) => (
                         <Cell key={`cell-${index}`} fill={entry.color} />
                       ))}
@@ -495,9 +500,10 @@ export function Report() {
                     <YAxis stroke="hsl(var(--muted-foreground))" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
+                        backgroundColor: "hsl(var(--popover))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "8px",
+                        color: "hsl(var(--popover-foreground))",
                       }}
                     />
                     <Legend />
@@ -516,18 +522,33 @@ export function Report() {
               <CardContent>
                 {plantData.length > 0 ? (
                   <ResponsiveContainer width="100%" height={260}>
-                    <BarChart data={plantData} layout="vertical">
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-                      <XAxis type="number" stroke="hsl(var(--muted-foreground))" />
-                      <YAxis dataKey="name" type="category" stroke="hsl(var(--muted-foreground))" width={80} />
+                    <BarChart data={plantData} layout="vertical" margin={{ top: 10, right: 30, left: 10, bottom: 10 }}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" horizontal={false} />
+                      <XAxis 
+                        type="number" 
+                        stroke="hsl(var(--muted-foreground))" 
+                        allowDecimals={false}
+                        tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 12 }}
+                      />
+                      <YAxis 
+                        dataKey="name" 
+                        type="category" 
+                        stroke="hsl(var(--muted-foreground))" 
+                        width={90}
+                        tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 13 }}
+                      />
                       <Tooltip
+                        cursor={{ fill: "hsl(var(--muted) / 0.3)" }}
                         contentStyle={{
-                          backgroundColor: "hsl(var(--background))",
+                          backgroundColor: "hsl(var(--popover))",
                           border: "1px solid hsl(var(--border))",
                           borderRadius: "8px",
+                          color: "hsl(var(--popover-foreground))",
                         }}
                       />
-                      <Bar dataKey="value" fill={COLORS.purple} radius={[0, 8, 8, 0]} />
+                      <Bar dataKey="value" fill={COLORS.purple} radius={[0, 8, 8, 0]} maxBarSize={40}>
+                        <LabelList dataKey="value" position="right" fill="hsl(var(--foreground))" fontSize={13} fontWeight={600} />
+                      </Bar>
                     </BarChart>
                   </ResponsiveContainer>
                 ) : (
@@ -656,9 +677,10 @@ export function Report() {
                     <YAxis stroke="hsl(var(--muted-foreground))" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
+                        backgroundColor: "hsl(var(--popover))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "8px",
+                        color: "hsl(var(--popover-foreground))",
                       }}
                     />
                     <Bar dataKey="total" fill={COLORS.purple} radius={[8, 8, 0, 0]} name="Total Issues" />
@@ -687,9 +709,10 @@ export function Report() {
                     <YAxis stroke="hsl(var(--muted-foreground))" />
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "hsl(var(--background))",
+                        backgroundColor: "hsl(var(--popover))",
                         border: "1px solid hsl(var(--border))",
                         borderRadius: "8px",
+                        color: "hsl(var(--popover-foreground))",
                       }}
                     />
                     <Bar dataKey="value" fill={COLORS.red} radius={[8, 8, 0, 0]} />
