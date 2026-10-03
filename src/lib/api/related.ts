@@ -64,7 +64,7 @@ export async function fetchActivityMap(
     .from("activities")
     .select("id, owner_id, text, actor_id, at")
     .eq("owner_type", ownerType)
-    .order("at", { ascending: true });
+    .order("at", { ascending: false });
 
   const map = new Map<string, Activity[]>();
   for (const r of (data ?? []) as ActivityRow[]) {
