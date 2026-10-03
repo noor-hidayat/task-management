@@ -212,6 +212,12 @@
   display: none;
 }
 
+/* Item attachment yang sedang "kepilih" (ditetapkan setelah scroll berhenti) */
+[data-slot="attachment-group"] > [data-current="true"] {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
 /* ============================================================
    MOBILE-FIRST LAYER (Opsi C: bottom nav + list-first)
    Token & breakpoint mengikuti mock/mobile-mock.html

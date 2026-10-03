@@ -191,11 +191,66 @@ function AttachmentGroup({ className, ref, ...props }: React.ComponentProps<"div
 
   // Scroll vertikal (wheel) menggeser horizontal saat kursor di area ini —
   // tanpa Shift. Langsung tambah ke scrollLeft per event (persis seperti
-  // perilaku native Shift+scroll, tanpa animasi/lag), dan hanya saat masih
-  // bisa geser — di ujung, scroll halaman dibiarkan jalan normal.
+  // perilaku native Shift+scroll), dan hanya saat masih bisa geser — di
+  // ujung, scroll halaman dibiarkan jalan normal.
+  //
+  // Selama digeser, snap dimatikan agar tidak ada item yang "kepilih" di
+  // tengah jalan; setelah berhenti (debounce), strip menetap ke file
+  // terdekat dari tengah viewport dan file itu ditandai.
   React.useEffect(() => {
     const el = localRef.current;
     if (!el) return;
+    let debounce = 0;
+    let settling = false;
+
+    const markCurrent = () => {
+      const crect = el.getBoundingClientRect();
+      const center = crect.left + crect.width / 2;
+      let best: HTMLElement | null = null;
+      let bestDist = Infinity;
+      for (const child of el.children) {
+        if (!(child instanceof HTMLElement)) continue;
+        const r = child.getBoundingClientRect();
+        const d = Math.abs(r.left + r.width / 2 - center);
+        if (d < bestDist) {
+          bestDist = d;
+          best = child;
+        }
+      }
+      for (const child of el.children) {
+        if (child instanceof HTMLElement) child.removeAttribute("data-current");
+      }
+      if (best) best.setAttribute("data-current", "true");
+      return best;
+    };
+
+    const settle = () => {
+      const best = markCurrent();
+      el.style.removeProperty("scroll-snap-type");
+      if (!best) return;
+      const crect = el.getBoundingClientRect();
+      const r = best.getBoundingClientRect();
+      const delta = r.left + r.width / 2 - (crect.left + crect.width / 2);
+      if (Math.abs(delta) > 2) {
+        settling = true;
+        el.scrollTo({ left: el.scrollLeft + delta, behavior: "smooth" });
+        window.setTimeout(() => {
+          settling = false;
+        }, 450);
+      }
+    };
+
+    const armSettle = () => {
+      window.clearTimeout(debounce);
+      debounce = window.setTimeout(settle, 180);
+    };
+
+    const onScroll = () => {
+      if (settling) return;
+      el.style.scrollSnapType = "none";
+      armSettle();
+    };
+
     const onWheel = (e: WheelEvent) => {
       if (e.shiftKey || e.ctrlKey) return;
       if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
@@ -210,8 +265,14 @@ function AttachmentGroup({ className, ref, ...props }: React.ComponentProps<"div
       el.scrollLeft += dy;
     };
     el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("scroll", onScroll, { passive: true });
+    // Tandai item awal saat mount.
+    const init = window.setTimeout(markCurrent, 100);
     return () => {
       el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("scroll", onScroll);
+      window.clearTimeout(debounce);
+      window.clearTimeout(init);
     };
   }, []);
 
