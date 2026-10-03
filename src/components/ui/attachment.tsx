@@ -179,9 +179,62 @@ function AttachmentTrigger({
 }
 
 function AttachmentGroup({ className, ref, ...props }: React.ComponentProps<"div">) {
+  const localRef = React.useRef<HTMLDivElement | null>(null);
+  const setRefs = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      localRef.current = el;
+      if (typeof ref === "function") ref(el);
+      else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
+    },
+    [ref]
+  );
+
+  // Scroll vertikal (wheel) menggeser horizontal saat kursor di area ini —
+  // tanpa Shift. Dibuat halus via animasi lerp, dan hanya saat masih bisa
+  // geser (di ujung, scroll halaman dibiarkan jalan normal).
+  React.useEffect(() => {
+    const el = localRef.current;
+    if (!el) return;
+    let target = el.scrollLeft;
+    let current = el.scrollLeft;
+    let raf = 0;
+    const clamp = (v: number) => Math.min(Math.max(v, 0), el.scrollWidth - el.clientWidth);
+    const tick = () => {
+      current += (target - current) * 0.25;
+      if (Math.abs(target - current) < 0.5) {
+        el.scrollLeft = target;
+        current = target;
+        raf = 0;
+        return;
+      }
+      el.scrollLeft = current;
+      raf = requestAnimationFrame(tick);
+    };
+    const onWheel = (e: WheelEvent) => {
+      if (e.shiftKey || e.ctrlKey) return;
+      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0) return;
+      const atStart = el.scrollLeft <= 0;
+      const atEnd = el.scrollLeft >= max - 1;
+      if ((e.deltaY > 0 && atEnd) || (e.deltaY < 0 && atStart)) return;
+      e.preventDefault();
+      // Normalisasi delta (mode baris -> piksel) lalu akumulasi ke target.
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaY;
+      target = raf === 0 ? clamp(el.scrollLeft + dy) : clamp(target + dy);
+      current = el.scrollLeft;
+      if (raf === 0) raf = requestAnimationFrame(tick);
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, []);
+
   return (
     <div
-      ref={ref}
+      ref={setRefs}
       data-slot="attachment-group"
       className={cn(
         "flex min-w-0 scroll-fade-x snap-x snap-proximity scroll-px-1 scrollbar-none gap-3 overflow-x-auto overscroll-x-contain py-1 *:data-[slot=attachment]:flex-none *:data-[slot=attachment]:snap-start",
