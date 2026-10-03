@@ -267,9 +267,44 @@ export function Report() {
       .slice(0, 5);
   }, [filteredIssues]);
 
+  // Avg Resolution Time = avg(end_datetime - start_datetime) untuk closed issues
+  // Fallback ke createdAt/closedAt bila start/end_datetime belum diisi (data lama).
+  const avgResolution = React.useMemo(() => {
+    const durations: number[] = [];
+    filteredIssues.forEach((i) => {
+      if (i.status !== "closed") return;
+      const start =
+        parseMockDate(i.startDateTimeISO || i.startDateTime) || parseMockDate(i.createdAt);
+      const end =
+        parseMockDate(i.endDateTimeISO || i.endDateTime) ||
+        parseMockDate(i.closedAt || i.updatedAt);
+      if (!start || !end) return;
+      const diff = end.getTime() - start.getTime();
+      if (!Number.isFinite(diff) || diff < 0) return;
+      durations.push(diff);
+    });
+    if (durations.length === 0) return { label: "—", count: 0 };
+    const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
+    const mins = Math.round(avg / 60000);
+    let label: string;
+    if (mins < 60) {
+      label = `${mins}m`;
+    } else {
+      const hours = avg / 3600000;
+      if (hours < 24) {
+        const h = Math.round(hours * 10) / 10;
+        label = `${Number.isInteger(h) ? h.toFixed(0) : String(h)}h`;
+      } else {
+        const d = Math.round((hours / 24) * 10) / 10;
+        label = `${Number.isInteger(d) ? d.toFixed(0) : String(d)}d`;
+      }
+    }
+    return { label, count: durations.length };
+  }, [filteredIssues]);
+
   const statCards = [
     { label: "Total Issues", value: summary.total, icon: ClipboardList, trend: "+2 this week", trendUp: true },
-    { label: "Avg Resolution Time", value: "4.2h", icon: BarChart3, trend: "-15% vs last week", trendUp: true },
+    { label: "Avg Resolution Time", value: avgResolution.label, icon: BarChart3, trend: avgResolution.count > 0 ? `dari ${avgResolution.count} closed issues` : "Belum ada issue closed", trendUp: null },
     { label: "Completion Rate", value: `${summary.completionRate}%`, icon: CheckCircle2, trend: "+12% vs last month", trendUp: true },
     { label: "Overdue", value: summary.overdue, icon: AlertTriangle, trend: "No overdue issues", trendUp: null },
   ];

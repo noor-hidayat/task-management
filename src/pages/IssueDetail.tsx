@@ -21,7 +21,7 @@ import {
   Plus,
   RotateCcw,
   Search,
-  Send,
+  SendHorizontal,
   Tag,
   Trash2,
   Users,
@@ -185,8 +185,12 @@ export function IssueDetail() {
   const { number } = useParams();
   const { user: currentUser } = useAuth();
   const { data: users } = useUsers();
-  const { data: issue, loading: issuesLoading, reload, refreshAttachments } = useIssue(number);
+  const { data: issue, loading: issuesLoading, reload, refreshAttachments, refreshComments } = useIssue(number);
   const [draft, setDraft] = useState("");
+  const [mentionQuery, setMentionQuery] = useState<string | null>(null);
+  const [mentionStart, setMentionStart] = useState(0);
+  const [mentionActive, setMentionActive] = useState(0);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     setDraft("");
@@ -233,6 +237,12 @@ export function IssueDetail() {
           ),
     [dialogAssignees, pickerNormalized, users]
   );
+
+  const mentionSuggestions = useMemo(() => {
+    if (mentionQuery === null) return [];
+    const q = mentionQuery.toLowerCase();
+    return users.filter((u) => u.name.toLowerCase().includes(q)).slice(0, 3);
+  }, [mentionQuery, users]);
 
   if (issuesLoading || !issue) {
     return (
@@ -541,10 +551,55 @@ export function IssueDetail() {
     setPreviewItem(a);
   };
 
+  const updateMention = (value: string, cursor: number) => {
+    const before = value.slice(0, cursor);
+    // "@" diikuti kata (boleh multi-kata) tanpa newline. Spasi ganda / newline
+    // menghentikan mention agar query tidak "bocor" menelan seluruh teks.
+    const m = before.match(/@([\w]+(?:\s[\w]+)*)$/);
+    if (m) {
+      setMentionQuery(m[1]);
+      setMentionStart(cursor - m[0].length);
+      setMentionActive(0);
+    } else {
+      setMentionQuery(null);
+    }
+  };
+  const insertMention = (name: string) => {
+    const cursor = commentInputRef.current?.selectionStart ?? draft.length;
+    const before = draft.slice(0, mentionStart);
+    const after = draft.slice(cursor);
+    const next = `${before}@${name} ${after}`;
+    setDraft(next);
+    setMentionQuery(null);
+    requestAnimationFrame(() => {
+      const el = commentInputRef.current;
+      if (!el) return;
+      const pos = before.length + name.length + 2;
+      el.focus();
+      el.setSelectionRange(pos, pos);
+    });
+  };
+  const renderWithMentions = (text: string) => {
+    const names = [...users.map((u) => u.name)].sort((a, b) => b.length - a.length);
+    if (names.length === 0) return <span>{text}</span>;
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@(${names.map(esc).join("|")})`, "g");
+    const parts = text.split(re);
+    return parts.map((p, i) =>
+      names.includes(p) ? (
+        <span key={i} className="font-medium text-primary">
+          @{p}
+        </span>
+      ) : (
+        <span key={i}>{p}</span>
+      )
+    );
+  };
   const postComment = async () => {
     const clean = draft.trim();
-    if (!clean) return;
+    if (!clean || !actorId) return;
     await addComment("issue", issue.id, actorId, clean);
+    await logActivity("issue", issue.id, "commented", actorId);
     // Kirim notifikasi mention ke setiap user yang disebut (@Nama), kecuali diri sendiri.
     await notifyMentions({
       content: clean,
@@ -552,10 +607,13 @@ export function IssueDetail() {
       fromId: currentUser?.id ?? null,
       fromName: currentUser?.name,
       title: "You were mentioned in an issue",
-      message: issue.title,
+      message: clean.length > 80 ? `${clean.slice(0, 80)}…` : clean,
       link: `/issues/${issue.number}`,
     });
     setDraft("");
+    setMentionQuery(null);
+    if (commentInputRef.current) commentInputRef.current.style.height = "auto";
+    refreshComments();
   };
 
   return (
@@ -704,37 +762,99 @@ export function IssueDetail() {
           {/* Comments — di bawah description, di atas activity */}
           <section className="space-y-4">
             <SectionTitle title="Comments" icon={<AlignLeft />} count={comments.length} />
-            <div className="flex items-center gap-2 rounded-xl border bg-background p-2 focus-within:ring-1 focus-within:ring-ring">
-              <Textarea
-                id="issue-comment"
-                aria-label="Add comment"
-                value={draft}
-                onChange={(e) => {
-                  setDraft(e.target.value);
-                  const el = e.target as HTMLTextAreaElement;
-                  el.style.height = "auto";
-                  el.style.height = `${Math.min(el.scrollHeight, 112)}px`;
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    postComment();
-                  }
-                }}
-                placeholder="add comment..."
-                rows={1}
-                className="h-9 max-h-28 min-h-9 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-2 shadow-none focus-visible:ring-0"
-              />
-              <Button
-                size="icon"
-                className="h-9 w-9 shrink-0 rounded-lg"
-                onClick={postComment}
-                disabled={!draft.trim()}
-                aria-label="Send comment"
-                title="Kirim"
-              >
-                <Send className="h-4 w-4" />
-              </Button>
+            <div className="relative">
+              <div className="flex items-center gap-1 rounded-md border bg-background p-0.5 focus-within:ring-1 focus-within:ring-ring">
+                <Textarea
+                  ref={commentInputRef}
+                  id="issue-comment"
+                  aria-label="Add comment"
+                  value={draft}
+                  onChange={(e) => {
+                    setDraft(e.target.value);
+                    updateMention(
+                      e.target.value,
+                      e.target.selectionStart ?? e.target.value.length
+                    );
+                    const el = e.target as HTMLTextAreaElement;
+                    el.style.height = "auto";
+                    el.style.height = `${Math.min(el.scrollHeight, 112)}px`;
+                  }}
+                  onKeyDown={(e) => {
+                    if (mentionQuery !== null && mentionSuggestions.length > 0) {
+                      if (e.key === "ArrowDown") {
+                        e.preventDefault();
+                        setMentionActive((i) => (i + 1) % mentionSuggestions.length);
+                        return;
+                      }
+                      if (e.key === "ArrowUp") {
+                        e.preventDefault();
+                        setMentionActive(
+                          (i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length
+                        );
+                        return;
+                      }
+                      if (e.key === "Enter" || e.key === "Tab") {
+                        e.preventDefault();
+                        insertMention(
+                          mentionSuggestions[mentionActive]?.name ?? mentionSuggestions[0].name
+                        );
+                        return;
+                      }
+                      if (e.key === "Escape") {
+                        setMentionQuery(null);
+                        return;
+                      }
+                    }
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      postComment();
+                    }
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => setMentionQuery(null), 120);
+                  }}
+                  placeholder="add comment..."
+                  rows={1}
+                  className="h-7 max-h-16 min-h-7 flex-1 resize-none overflow-y-auto border-0 bg-transparent px-2 py-0.5 text-sm shadow-none focus-visible:ring-0"
+                />
+                <Button
+                  size="icon"
+                  className="h-7 w-7 shrink-0 rounded-md"
+                  onClick={postComment}
+                  disabled={!draft.trim()}
+                  aria-label="Send comment"
+                  title="Kirim"
+                >
+                  <SendHorizontal className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+              {mentionQuery !== null && mentionSuggestions.length > 0 && (
+                <div className="absolute right-0 bottom-full left-0 z-50 mb-1 overflow-hidden rounded-md border bg-popover shadow-md">
+                  {mentionSuggestions.map((u, i) => (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        insertMention(u.name);
+                      }}
+                      className={`flex w-full items-center gap-2 px-2.5 py-2 text-left text-sm ${
+                        i === mentionActive ? "bg-accent" : ""
+                      }`}
+                    >
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-[10px]">
+                          {initials(u.name)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <span className="flex-1 truncate font-medium">{u.name}</span>
+                      <span className="text-xs text-muted-foreground">
+                        @{u.name.toLowerCase().replace(/\s+/g, "")}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
             {comments.length === 0 ? (
               <p className="text-sm text-muted-foreground">No comments yet.</p>
@@ -752,7 +872,9 @@ export function IssueDetail() {
                         <span className="text-xs font-medium">{c.author}</span>
                         <span className="text-xs text-muted-foreground">{c.time ?? c.at}</span>
                       </div>
-                      <p className="mt-0.5 text-sm whitespace-pre-wrap">{c.text}</p>
+                      <p className="mt-0.5 text-sm whitespace-pre-wrap">
+                        {renderWithMentions(c.text)}
+                      </p>
                     </div>
                   </li>
                 ))}
