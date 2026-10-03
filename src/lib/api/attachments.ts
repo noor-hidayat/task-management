@@ -3,6 +3,23 @@ import { formatBytes } from "./mappers";
 
 type OwnerKind = "work" | "issue";
 
+/**
+ * Ubah error mentah dari Edge Function `drive` jadi pesan yang bisa ditindak.
+ * Kasus paling sering: refresh token Google (mode OAuth Gmail) sudah
+ * kadaluarsa/dicabut, sehingga upload & unduh SEMUA attachment ikut gagal.
+ * Tanpa ini, user cuma lihat JSON mentah Google dan mengira sesinya habis.
+ */
+function friendlyDriveError(raw: string | undefined, fallback: string): string {
+  const msg = raw ?? "";
+  if (/invalid_grant|expired or revoked/i.test(msg)) {
+    return "Koneksi ke Google Drive terputus — token akses Drive sudah kadaluarsa/dicabut. Hubungi admin untuk menyambungkan ulang Google Drive.";
+  }
+  if (/missing authorization|unauthorized|\b401\b/i.test(msg)) {
+    return "Sesi login kamu sudah berakhir. Login ulang lalu coba lagi.";
+  }
+  return msg || fallback;
+}
+
 const FUNCTIONS_BASE = () => `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/drive`;
 
 /** Header auth untuk memanggil Edge Function. */
@@ -93,7 +110,7 @@ export async function uploadAttachment(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? "Upload gagal");
+    throw new Error(friendlyDriveError(err.error, "Upload gagal"));
   }
   const data = (await res.json()) as {
     attachment: { id: string; file_name: string; file_type: string; file_size: string };
@@ -117,7 +134,7 @@ export async function deleteAttachment(attachmentId: string, driveFileId: string
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? "Gagal menghapus attachment");
+    throw new Error(friendlyDriveError(err.error, "Gagal menghapus attachment"));
   }
 }
 
