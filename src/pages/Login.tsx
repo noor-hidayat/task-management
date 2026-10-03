@@ -59,7 +59,7 @@ export function Login() {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value.toLowerCase())}
-                  placeholder="e.g.: operator_a / admin"
+                  placeholder="Masukkan username"
                   autoComplete="username"
                   required
                   className="pl-10"
