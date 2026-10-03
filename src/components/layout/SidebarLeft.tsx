@@ -49,7 +49,15 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             label="Report"
             pathname={pathname}
             items={[
-              { title: "Reporting", url: "/reporting", icon: BarChart3 },
+              {
+                title: "Reporting",
+                url: "/reporting",
+                icon: BarChart3,
+                children: [
+                  { title: "Issue Report", url: "/reporting/issues" },
+                  { title: "Task Report", url: "/reporting/tasks" },
+                ],
+              },
             ]}
           />
           <NavSecondary

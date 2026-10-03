@@ -44,7 +44,9 @@ function ProtectedRoutes() {
         {/* Primary sidebar labels */}
         <Route path="my-work" element={<MyWork />} />
         <Route path="my-task" element={<Navigate to="/my-work" replace />} />
-        <Route path="reporting" element={<Report />} />
+        <Route path="reporting" element={<Navigate to="/reporting/issues" replace />} />
+        <Route path="reporting/issues" element={<Report reportType="issue" />} />
+        <Route path="reporting/tasks" element={<Report reportType="task" />} />
         {/* Workspace */}
         <Route path="tasks" element={<Tasks />} />
         <Route path="tasks/:number" element={<TaskDetail />} />

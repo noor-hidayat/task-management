@@ -1,5 +1,5 @@
 import * as React from "react";
-import { BarChart3, CheckCircle2, ClipboardList, Loader2, AlertTriangle, TrendingUp, TrendingDown } from "lucide-react";
+import { BarChart3, CheckCircle2, ClipboardList, Loader2, AlertTriangle, TrendingUp, TrendingDown, Construction } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -77,6 +77,19 @@ function inRange(d: Date | null, start: Date, end: Date) {
   return d.getTime() >= start.getTime() && d.getTime() <= end.getTime();
 }
 
+/** Format durasi ms otomatis: menit (<60m) -> jam (<24h) -> hari. */
+function formatDuration(ms: number): string {
+  const mins = Math.round(ms / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = ms / 3600000;
+  if (hours < 24) {
+    const h = Math.round(hours * 10) / 10;
+    return `${Number.isInteger(h) ? h.toFixed(0) : String(h)}h`;
+  }
+  const d = Math.round((hours / 24) * 10) / 10;
+  return `${Number.isInteger(d) ? d.toFixed(0) : String(d)}d`;
+}
+
 /* ------------------------------------------------------------------ */
 /*  Chart Colors (match mockup)                                        */
 /* ------------------------------------------------------------------ */
@@ -95,7 +108,7 @@ const COLORS = {
 /*  Main Report Page                                                   */
 /* ------------------------------------------------------------------ */
 
-export function Report() {
+export function Report({ reportType = "issue" }: { reportType?: "issue" | "task" } = {}) {
   const { data: works, loading: worksLoading } = useWorks();
   const { data: issues, loading: issuesLoading } = useIssues();
   const { data: users } = useUsers();
@@ -226,27 +239,6 @@ export function Report() {
     return buckets.map(({ date, created, completed }) => ({ date, created, completed }));
   }, [filteredWorks, filteredIssues, range]);
 
-  // User workload (top 5)
-  const userWorkloadData = React.useMemo(() => {
-    const counts: Record<string, { total: number; completed: number; inProgress: number }> = {};
-    filteredWorks.forEach((w) => {
-      if (!counts[w.assignedTo]) counts[w.assignedTo] = { total: 0, completed: 0, inProgress: 0 };
-      counts[w.assignedTo].total++;
-      if (w.status === "completed") counts[w.assignedTo].completed++;
-      if (w.status === "in_progress") counts[w.assignedTo].inProgress++;
-    });
-    filteredIssues.forEach((i) => {
-      if (!counts[i.assignedTo]) counts[i.assignedTo] = { total: 0, completed: 0, inProgress: 0 };
-      counts[i.assignedTo].total++;
-      if (i.status === "closed") counts[i.assignedTo].completed++;
-      if (i.status === "in_progress") counts[i.assignedTo].inProgress++;
-    });
-    return Object.entries(counts)
-      .sort((a, b) => b[1].total - a[1].total)
-      .slice(0, 5)
-      .map(([name, stats]) => ({ name, ...stats }));
-  }, [filteredWorks, filteredIssues]);
-
   // Plant hotspot
   const plantData = React.useMemo(() => {
     const counts: Record<string, number> = {};
@@ -285,21 +277,32 @@ export function Report() {
     });
     if (durations.length === 0) return { label: "—", count: 0 };
     const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
-    const mins = Math.round(avg / 60000);
-    let label: string;
-    if (mins < 60) {
-      label = `${mins}m`;
-    } else {
-      const hours = avg / 3600000;
-      if (hours < 24) {
-        const h = Math.round(hours * 10) / 10;
-        label = `${Number.isInteger(h) ? h.toFixed(0) : String(h)}h`;
-      } else {
-        const d = Math.round((hours / 24) * 10) / 10;
-        label = `${Number.isInteger(d) ? d.toFixed(0) : String(d)}d`;
-      }
-    }
-    return { label, count: durations.length };
+    return { label: formatDuration(avg), count: durations.length };
+  }, [filteredIssues]);
+
+  // Avg Resolution Time per Issue Type (closed issues saja).
+  const avgResolutionByType = React.useMemo(() => {
+    const buckets: Record<string, number[]> = {};
+    filteredIssues.forEach((i) => {
+      if (i.status !== "closed") return;
+      const start =
+        parseMockDate(i.startDateTimeISO || i.startDateTime) || parseMockDate(i.createdAt);
+      const end =
+        parseMockDate(i.endDateTimeISO || i.endDateTime) ||
+        parseMockDate(i.closedAt || i.updatedAt);
+      if (!start || !end) return;
+      const diff = end.getTime() - start.getTime();
+      if (!Number.isFinite(diff) || diff < 0) return;
+      const type = (i.issueType || "Unknown").trim() || "Unknown";
+      if (!buckets[type]) buckets[type] = [];
+      buckets[type].push(diff);
+    });
+    return Object.entries(buckets)
+      .map(([name, durations]) => {
+        const avg = durations.reduce((a, b) => a + b, 0) / durations.length;
+        return { name, label: formatDuration(avg), count: durations.length, avgMs: avg };
+      })
+      .sort((a, b) => b.avgMs - a.avgMs);
   }, [filteredIssues]);
 
   const statCards = [
@@ -314,7 +317,7 @@ export function Report() {
       <div className="space-y-4">
         <div className="flex justify-between items-start">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Reports Dashboard</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{reportType === "task" ? "Task Report" : "Issue Report"}</h1>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -331,8 +334,9 @@ export function Report() {
       {/* Header with Date Filter */}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Reports Dashboard</h1>
+          <h1 className="text-3xl font-bold tracking-tight">{reportType === "task" ? "Task Report" : "Issue Report"}</h1>
         </div>
+        {reportType === "issue" && (
         <div className="flex flex-col items-end gap-3">
           <div className="flex gap-2">
             <Button
@@ -389,13 +393,23 @@ export function Report() {
             </div>
           )}
           </div>
+        )}
         </div>
 
-      {/* Tabs */}
+      {reportType === "task" ? (
+        <Card>
+          <CardContent className="flex flex-col items-center gap-3 py-16 text-center">
+            <span className="flex h-14 w-14 items-center justify-center rounded-full bg-muted">
+              <Construction className="h-7 w-7 text-muted-foreground" />
+            </span>
+            <p className="text-lg font-semibold tracking-tight">Task Report</p>
+            <p className="text-sm text-muted-foreground">Dalam tahap development</p>
+          </CardContent>
+        </Card>
+      ) : (
       <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-        <TabsList className="grid w-full max-w-md grid-cols-4">
+        <TabsList className="grid w-full max-w-md grid-cols-3">
           <TabsTrigger value="overview">Overview</TabsTrigger>
-          <TabsTrigger value="team">Team</TabsTrigger>
           <TabsTrigger value="plant">Plant</TabsTrigger>
           <TabsTrigger value="trends">Trends</TabsTrigger>
         </TabsList>
@@ -567,48 +581,36 @@ export function Report() {
             </Card>
           </div>
 
-          {/* Top Assignees Table */}
+          {/* Avg Resolution Time by Issue Type */}
           <Card>
             <CardHeader>
-              <CardTitle className="text-lg">Top Assignees (Last 30 Days)</CardTitle>
+              <CardTitle className="text-lg">Avg Resolution Time by Issue Type</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Name</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Total Issues</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Completed</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">In Progress</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {userWorkloadData.length > 0 ? (
-                      userWorkloadData.map((u) => (
-                        <tr key={u.name} className="border-b last:border-0">
-                          <td className="py-3 px-4 font-medium">{u.name}</td>
-                          <td className="py-3 px-4">{u.total}</td>
-                          <td className="py-3 px-4">{u.completed}</td>
-                          <td className="py-3 px-4">{u.inProgress}</td>
-                          <td className="py-3 px-4">
-                            <Badge variant={u.inProgress > 0 ? "default" : "secondary"}>
-                              {u.inProgress > 0 ? "Active" : "Idle"}
-                            </Badge>
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={5} className="py-8 text-center text-sm text-muted-foreground">
-                          No data available
-                        </td>
+              {avgResolutionByType.length > 0 ? (
+                <div className="overflow-x-auto">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="border-b">
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Issue Type</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Avg Resolution</th>
+                        <th className="text-left py-3 px-4 text-sm font-semibold text-muted-foreground">Closed Issues</th>
                       </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {avgResolutionByType.map((row) => (
+                        <tr key={row.name} className="border-b last:border-0">
+                          <td className="py-3 px-4 font-medium">{row.name}</td>
+                          <td className="py-3 px-4">{row.label}</td>
+                          <td className="py-3 px-4">{row.count}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-center text-sm text-muted-foreground py-12">No closed issues in this period</p>
+              )}
             </CardContent>
           </Card>
 
@@ -666,38 +668,6 @@ export function Report() {
                   </tbody>
                 </table>
               </div>
-            </CardContent>
-          </Card>
-        </TabsContent>
-
-        {/* Team Performance Tab */}
-        <TabsContent value="team" className="space-y-6 mt-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Top Assignees</CardTitle>
-              <CardDescription>Most active users</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {userWorkloadData.length > 0 ? (
-                <ResponsiveContainer width="100%" height={320}>
-                  <BarChart data={userWorkloadData}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-                    <XAxis dataKey="name" stroke="var(--muted-foreground)" />
-                    <YAxis stroke="var(--muted-foreground)" />
-                    <Tooltip
-                      contentStyle={{
-                        backgroundColor: "var(--popover)",
-                        border: "1px solid var(--border)",
-                        borderRadius: "8px",
-                        color: "var(--popover-foreground)",
-                      }}
-                    />
-                    <Bar dataKey="total" fill={COLORS.purple} radius={[8, 8, 0, 0]} name="Total Issues" />
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <p className="text-center text-sm text-muted-foreground py-12">No data available</p>
-              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -763,6 +733,7 @@ export function Report() {
           </Card>
         </TabsContent>
       </Tabs>
+      )}
     </div>
   );
 }
