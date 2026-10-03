@@ -64,6 +64,7 @@ R2_ACCESS_KEY_ID=...
 R2_SECRET_ACCESS_KEY=...
 R2_BUCKET=tims-evidence
 # opsional: R2_ENDPOINT, R2_REGION, R2_PREFIX
+# opsional: R2_MAX_BYTES=9663676416   (batas upload, default 9 GiB)
 ```
 
 ## 5. Deploy Edge Functions
@@ -86,11 +87,17 @@ npx supabase functions deploy drive
 npx supabase functions deploy admin-users
 ```
 
-- `drive?action=upload|download|delete` — operasi file ke R2
+- `drive?action=upload|download|delete|usage` — operasi file ke R2
   (sub-prefix per issue/task, mis. `tims/issue-ISS-000101/`).
   Nama fungsi tetap `drive` demi kompatibilitas frontend; kolom DB
   `drive_file_id` kini berisi **object key** R2 dan `drive_folder_id` berisi
   **prefix**.
+  - `action=usage` mengembalikan kapasitas bucket (terpakai, batas, sisa).
+  - **Batas kuota**: sebelum upload, fungsi menghitung pemakaian bucket
+    sebenarnya (jumlah byte semua objek via S3 ListObjectsV2). Bila
+    `terpakai + file baru > R2_MAX_BYTES` (default **9 GiB**), upload ditolak
+    dengan HTTP **507** dan pesan "Storage penuh". Ini menjaga agar tak
+    menembus kuota gratis R2 (10 GB). Set `R2_MAX_BYTES` untuk mengubah batas.
 - `admin-users` — create/update/delete user oleh admin (butuh service role).
 
 ## 6. Seed user demo

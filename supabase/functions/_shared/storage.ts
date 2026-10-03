@@ -190,3 +190,102 @@ export async function deleteFile(key: string): Promise<void> {
     throw new Error(`Gagal hapus objek R2: ${res.status} ${await res.text()}`);
   }
 }
+
+/* ── Kapasitas bucket & batas kuota ─────────────────────────── */
+
+export interface BucketUsage {
+  /** Total byte seluruh objek di bucket (ground truth). */
+  totalBytes: number;
+  /** Jumlah objek. */
+  objectCount: number;
+  /** Berapa halaman listing yang dibaca. */
+  pages: number;
+  /** True bila listing dihentikan sebelum selesai (bucket sangat besar). */
+  truncated: boolean;
+}
+
+/** Batas aman listing halaman (1000 objek/halaman) agar tak menggantung. */
+const MAX_LIST_PAGES = 500;
+
+function xmlUnescape(value: string): string {
+  return value
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+/**
+ * Hitung pemakaian bucket sebenarnya dengan menjumlahkan ukuran semua objek
+ * (S3 ListObjectsV2, dipaginasi). Ini ground truth: tahan terhadap objek
+ * "yatim" (mis. sisa era Drive) yang tak lagi ada barisnya di DB, sehingga
+ * angka yang dipakai untuk menolak upload tidak pernah salah hitung.
+ */
+export async function getBucketUsage(): Promise<BucketUsage> {
+  const { client, bucket, endpoint } = getClient();
+  const base = `${endpoint}/${encodeSegment(bucket)}`;
+  let continuationToken: string | undefined;
+  let totalBytes = 0;
+  let objectCount = 0;
+  let pages = 0;
+  let truncated = false;
+
+  for (let i = 0; i < MAX_LIST_PAGES; i++) {
+    const url = new URL(base);
+    url.searchParams.set("list-type", "2");
+    url.searchParams.set("max-keys", "1000");
+    if (continuationToken) {
+      url.searchParams.set("continuation-token", continuationToken);
+    }
+
+    const res = await client.fetch(url.toString(), { method: "GET" });
+    if (!res.ok) {
+      throw new Error(`Gagal membaca ukuran bucket: ${res.status} ${await res.text()}`);
+    }
+    const xml = await res.text();
+    pages++;
+
+    for (const block of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const sizeMatch = block[1].match(/<Size>(\d+)<\/Size>/);
+      totalBytes += sizeMatch ? Number(sizeMatch[1]) : 0;
+      objectCount++;
+    }
+
+    truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+    if (!truncated) break;
+
+    const tokenMatch = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/);
+    if (!tokenMatch) break;
+    continuationToken = xmlUnescape(tokenMatch[1]);
+  }
+
+  return { totalBytes, objectCount, pages, truncated };
+}
+
+/** Batas default: 9 GiB (aman di bawah kuota gratis R2 10 GB). */
+const DEFAULT_MAX_BYTES = 9 * 1024 * 1024 * 1024;
+
+/** Batas kapasitas dari env `R2_MAX_BYTES` (byte). Default 9 GiB. */
+export function maxStorageBytes(): number {
+  const raw = Deno.env.get("R2_MAX_BYTES");
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n > 0 ? n : DEFAULT_MAX_BYTES;
+}
+
+/** Apakah menambah `incomingBytes` akan melewati batas? */
+export function exceedsLimit(
+  usedBytes: number,
+  incomingBytes: number,
+  limitBytes: number
+): boolean {
+  return usedBytes + incomingBytes > limitBytes;
+}
+
+/** Format byte jadi teks ringkas (mis. "9.0 GB"). */
+export function formatBytesHuman(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}

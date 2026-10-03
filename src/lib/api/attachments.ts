@@ -11,6 +11,9 @@ type OwnerKind = "work" | "issue";
  */
 function friendlyStorageError(raw: string | undefined, fallback: string): string {
   const msg = raw ?? "";
+  if (/storage penuh|kapasitas|507/i.test(msg)) {
+    return msg || "Storage penuh. Hapus file lama untuk mengosongkan ruang.";
+  }
   if (/R2_|belum diset|signature|access key|403|401.*r2/i.test(msg)) {
     return "Koneksi ke storage terputus — kredensial storage (R2) belum diset atau salah. Hubungi admin.";
   }
@@ -151,4 +154,48 @@ export async function fetchAttachmentObjectUrl(driveFileId: string): Promise<str
   if (!res.ok) return null;
   const blob = await res.blob();
   return URL.createObjectURL(blob);
+}
+
+export interface StorageUsage {
+  totalBytes: number;
+  objectCount: number;
+  limitBytes: number;
+  remainingBytes: number;
+  usedHuman: string;
+  limitHuman: string;
+  remainingHuman: string;
+  percentUsed: number;
+  full: boolean;
+}
+
+/** Ambil kapasitas storage (dipakai + sisa kuota) dari Edge Function. */
+export async function fetchStorageUsage(): Promise<StorageUsage | null> {
+  const res = await fetch(`${FUNCTIONS_BASE()}?action=usage`, {
+    method: "POST",
+    headers: { ...(await authHeaders()), "Content-Type": "application/json" },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) return null;
+  const d = (await res.json()) as {
+    total_bytes: number;
+    object_count: number;
+    limit_bytes: number;
+    remaining_bytes: number;
+    used_human: string;
+    limit_human: string;
+    remaining_human: string;
+    percent_used: number;
+    full: boolean;
+  };
+  return {
+    totalBytes: d.total_bytes,
+    objectCount: d.object_count,
+    limitBytes: d.limit_bytes,
+    remainingBytes: d.remaining_bytes,
+    usedHuman: d.used_human,
+    limitHuman: d.limit_human,
+    remainingHuman: d.remaining_human,
+    percentUsed: d.percent_used,
+    full: d.full,
+  };
 }

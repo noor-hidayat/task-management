@@ -5,6 +5,11 @@
 //   ?action=upload   form-data: owner_type, owner_id, owner_label, file
 //   ?action=download  json: { file_id }  → stream bytes
 //   ?action=delete    json: { file_id, attachment_id }
+//   ?action=usage     (GET/POST)         → kapasitas bucket + sisa kuota
+//
+// Upload diblokir (HTTP 507) bila pemakaian bucket + file baru melewati batas
+// aman (default 9 GiB, atur lewat secret R2_MAX_BYTES) supaya tak menembus
+// kuota gratis R2 (10 GB).
 //
 // Verifikasi JWT Supabase (verify_jwt=true di config.toml), dan cek
 // keanggotaan user terhadap owner entity sebelum upload/download/delete.
@@ -17,8 +22,12 @@ import { corsHeaders, errorResponse, json } from "../_shared/cors.ts";
 import {
   deleteFile,
   downloadFile,
+  exceedsLimit,
   folderPrefix,
+  formatBytesHuman,
+  getBucketUsage,
   getFileMeta,
+  maxStorageBytes,
   rootPrefix,
   uploadFile,
 } from "../_shared/storage.ts";
@@ -57,6 +66,8 @@ Deno.serve(async (req: Request) => {
         return await handleDownload(req, supabase);
       case "delete":
         return await handleDelete(req, supabase, user.id);
+      case "usage":
+        return await handleUsage();
       default:
         return errorResponse("Unknown action", 404);
     }
@@ -100,6 +111,29 @@ async function handleUpload(
   const prefix = folderPrefix(rootPrefix(), `${ownerType}-${ownerLabel}`);
 
   const bytes = new Uint8Array(await file.arrayBuffer());
+
+  // Gate kuota: cek pemakaian bucket sebenarnya SEBELUM menyimpan apa pun.
+  // Kalau total (terpakai + file ini) melewati batas (default 9 GiB), tolak.
+  const limit = maxStorageBytes();
+  let usage;
+  try {
+    usage = await getBucketUsage();
+  } catch (e) {
+    return errorResponse(
+      `Tidak bisa memeriksa kapasitas storage: ${e instanceof Error ? e.message : String(e)}`,
+      503
+    );
+  }
+  if (exceedsLimit(usage.totalBytes, bytes.length, limit)) {
+    const sisa = Math.max(0, limit - usage.totalBytes);
+    return errorResponse(
+      `Storage penuh — sisa kapasitas ${formatBytesHuman(sisa)} dari batas ` +
+        `${formatBytesHuman(limit)} (terpakai ${formatBytesHuman(usage.totalBytes)}). ` +
+        `Hapus file lama untuk mengosongkan ruang.`,
+      507
+    );
+  }
+
   const uploaded = await uploadFile({
     prefix,
     fileName: file.name,
@@ -196,6 +230,32 @@ async function handleDelete(
   if (error) return errorResponse(error.message, 500);
 
   return json({ ok: true, deleted_by: userId });
+}
+
+/* ── Usage (kapasitas bucket) ───────────────────────────────── */
+async function handleUsage(): Promise<Response> {
+  const limit = maxStorageBytes();
+  try {
+    const usage = await getBucketUsage();
+    const sisa = Math.max(0, limit - usage.totalBytes);
+    return json({
+      total_bytes: usage.totalBytes,
+      object_count: usage.objectCount,
+      limit_bytes: limit,
+      remaining_bytes: sisa,
+      used_human: formatBytesHuman(usage.totalBytes),
+      limit_human: formatBytesHuman(limit),
+      remaining_human: formatBytesHuman(sisa),
+      percent_used: limit > 0 ? Math.min(100, (usage.totalBytes / limit) * 100) : 0,
+      full: usage.totalBytes >= limit,
+      listing_truncated: usage.truncated,
+    });
+  } catch (e) {
+    return errorResponse(
+      `Gagal membaca kapasitas storage: ${e instanceof Error ? e.message : String(e)}`,
+      502
+    );
+  }
 }
 
 /* ── util ───────────────────────────────────────────────────── */
