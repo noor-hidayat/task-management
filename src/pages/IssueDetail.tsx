@@ -321,6 +321,7 @@ export function IssueDetail() {
     const combined = new Date(`${startDateDraft}T00:00:00`);
     combined.setHours(h, m, s || 0);
     await updateIssue(issue.id, { status: "in_progress", startDatetime: combined.toISOString() });
+    await logActivity("issue", issue.id, "started issue", actorId);
     reload();
     setStartOpen(false);
   };
@@ -341,12 +342,14 @@ export function IssueDetail() {
     const combined = new Date(`${endDateDraft}T00:00:00`);
     combined.setHours(h, m, s || 0);
     await updateIssue(issue.id, { status: "closed", resolution, endDatetime: combined.toISOString() });
+    await logActivity("issue", issue.id, "closed issue", actorId);
     reload();
     setCloseOpen(false);
   };
 
   const reopen = async () => {
     await updateIssue(issue.id, { status: "open", holdReason: "" });
+    await logActivity("issue", issue.id, "reopened issue", actorId);
     reload();
   };
 
@@ -359,17 +362,20 @@ export function IssueDetail() {
     const reason = holdDraft.trim();
     if (!reason) return;
     await updateIssue(issue.id, { status: "on_hold", holdReason: reason });
+    await logActivity("issue", issue.id, `put issue on hold (${reason})`, actorId);
     reload();
     setHoldOpen(false);
   };
 
   const resumeIssue = async () => {
     await updateIssue(issue.id, { status: "in_progress" });
+    await logActivity("issue", issue.id, "resumed issue", actorId);
     reload();
   };
 
   const cancelIssue = async () => {
     await updateIssue(issue.id, { cancelled: true });
+    await logActivity("issue", issue.id, "cancelled issue", actorId);
     reload();
     setCancelOpen(false);
   };
@@ -434,6 +440,7 @@ export function IssueDetail() {
       patch.assignedTeamId = v.assignedTeamId;
     }
     await updateIssue(issue.id, patch);
+    await logActivity("issue", issue.id, "edited issue", actorId);
     reload();
   };
 
