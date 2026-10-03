@@ -7,10 +7,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { PageSkeleton } from "@/components/page-skeleton";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AssigneeGroup } from "@/components/assignee-group";
 import { StatusBadge, PriorityBadge } from "@/components/status-badge";
 import { TaskListView } from "@/components/task-list-view";
-import { initials, avatarColor, workDisplayStatus, isOverdue } from "@/lib/format";
+import { workDisplayStatus, isOverdue, stripHtml } from "@/lib/format";
 import {
   DataTable,
   DataTableColumnHeader,
@@ -186,7 +186,7 @@ export function Tasks() {
           <DataTableColumnHeader column={column} title="Description" />
         ),
         cell: ({ row }) => {
-          const desc = row.getValue("description") as string;
+          const desc = stripHtml((row.getValue("description") as string) ?? "");
           if (!desc) return <span className="text-muted-foreground">—</span>;
           return (
             <span className="block max-w-[260px] truncate text-sm text-muted-foreground" title={desc}>
@@ -201,18 +201,14 @@ export function Tasks() {
           <DataTableColumnHeader column={column} title="Assigned To" />
         ),
         cell: ({ row }) => {
-          const name = row.getValue("assignedTo") as string;
-          if (!name) return <span className="text-muted-foreground">—</span>;
-          return (
-            <div className="flex items-center gap-2">
-              <Avatar className="h-6 w-6">
-                <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
-                  {initials(name)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="max-w-[120px] truncate text-sm">{name}</span>
-            </div>
-          );
+          const work = row.original;
+          const names =
+            Array.isArray(work.assignees) && work.assignees.length > 0
+              ? work.assignees
+              : work.assignedTo
+                ? [work.assignedTo]
+                : [];
+          return <AssigneeGroup names={names} />;
         },
       },
       {

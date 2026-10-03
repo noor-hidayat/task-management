@@ -43,7 +43,8 @@ function rowToWork(
   row: WorkRow,
   names: Map<string, string>,
   teamNameById: Map<string, string>,
-  checklist: ChecklistItem[]
+  checklist: ChecklistItem[],
+  assigneeNames: string[] = []
 ): WorkItem {
   return {
     id: row.id,
@@ -54,6 +55,7 @@ function rowToWork(
     priority: row.priority,
     createdBy: nameOf(names, row.created_by, "—"),
     assignedTo: nameOf(names, row.assigned_to, "—"),
+    assignees: assigneeNames.length > 0 ? assigneeNames : undefined,
     team: nameOf(teamNameById, row.team_id, "—"),
     teamId: row.team_id ?? "",
     shift: row.shift ?? "",
@@ -84,13 +86,16 @@ export async function listWorks(): Promise<WorkItem[]> {
   const rows = (worksData ?? []) as WorkRow[];
   const ids = rows.map((r) => r.id);
 
-  const [checklistRes, attachmentMap, activityMap, commentMap] = await Promise.all([
+  const [checklistRes, assigneeRes, attachmentMap, activityMap, commentMap] = await Promise.all([
     ids.length
       ? supabase
           .from("work_checklist")
           .select("id, work_id, label, done, position")
           .in("work_id", ids)
           .order("position")
+      : Promise.resolve({ data: [] as never[] }),
+    ids.length
+      ? supabase.from("work_assignees").select("work_id, user_id").in("work_id", ids)
       : Promise.resolve({ data: [] as never[] }),
     fetchAttachmentMap("work", names),
     fetchActivityMap("work", names),
@@ -104,8 +109,16 @@ export async function listWorks(): Promise<WorkItem[]> {
     checklistByWork.get(wid)!.push({ id: c.id, label: c.label, done: c.done });
   }
 
+  const assigneesByWork = new Map<string, string[]>();
+  for (const a of assigneeRes.data ?? []) {
+    const wid = a.work_id as string;
+    if (!assigneesByWork.has(wid)) assigneesByWork.set(wid, []);
+    const name = names.get(a.user_id as string);
+    if (name) assigneesByWork.get(wid)!.push(name);
+  }
+
   return rows.map((row) => {
-    const item = rowToWork(row, names, teamNameById, checklistByWork.get(row.id) ?? []);
+    const item = rowToWork(row, names, teamNameById, checklistByWork.get(row.id) ?? [], assigneesByWork.get(row.id) ?? []);
     item.evidences = attachmentMap.get(row.id) ?? [];
     item.activities = activityMap.get(row.id) ?? [];
     item.comments = commentMap.get(row.id) ?? [];
@@ -163,6 +176,12 @@ export async function createWork(input: CreateWorkInput): Promise<WorkItem> {
       input.checklist.map((label, i) => ({ work_id: data.id, label, position: i }))
     );
   }
+  const primaryAssignee = asUuid(input.assignedToId);
+  if (primaryAssignee) {
+    await supabase
+      .from("work_assignees")
+      .insert({ work_id: data.id, user_id: primaryAssignee });
+  }
   if (input.assignedToId) {
     await logActivity("work", data.id, "created task", input.createdById);
   }
@@ -177,6 +196,7 @@ export async function updateWork(
     status: WorkItem["status"];
     priority: WorkItem["priority"];
     assignedToId: string;
+    assigneeIds: string[];
     teamId: string;
     shift: string;
     dueDate: string;
@@ -204,6 +224,17 @@ export async function updateWork(
   if (patch.evidenceRequired !== undefined) dbPatch.evidence_required = patch.evidenceRequired;
   if (patch.cancelled !== undefined) dbPatch.cancelled = patch.cancelled;
   if (patch.note !== undefined) dbPatch.note = patch.note;
+
+  if (patch.assigneeIds) {
+    const validIds = patch.assigneeIds.map((v) => asUuid(v)).filter((v): v is string => !!v);
+    dbPatch.assigned_to = validIds[0] ?? null;
+    await supabase.from("work_assignees").delete().eq("work_id", id);
+    if (validIds.length) {
+      await supabase
+        .from("work_assignees")
+        .insert(validIds.map((uid) => ({ work_id: id, user_id: uid })));
+    }
+  }
 
   if (Object.keys(dbPatch).length === 0) return;
   const { error } = await supabase.from("works").update(dbPatch).eq("id", id);
@@ -262,13 +293,24 @@ export async function listWorksByIds(ids: string[]): Promise<WorkItem[]> {
     if (!checklistByWork.has(wid)) checklistByWork.set(wid, []);
     checklistByWork.get(wid)!.push({ id: c.id, label: c.label, done: c.done });
   }
+  const { data: junctionData } = await supabase
+    .from("work_assignees")
+    .select("work_id, user_id")
+    .in("work_id", ids);
+  const assigneesByWork = new Map<string, string[]>();
+  for (const a of junctionData ?? []) {
+    const wid = (a as { work_id: string }).work_id;
+    if (!assigneesByWork.has(wid)) assigneesByWork.set(wid, []);
+    const name = names.get((a as { user_id: string }).user_id);
+    if (name) assigneesByWork.get(wid)!.push(name);
+  }
   const [attachmentMap, activityMap, commentMap] = await Promise.all([
     fetchAttachmentMap("work", names),
     fetchActivityMap("work", names),
     fetchCommentMap("work", names),
   ]);
   return rows.map((row) => {
-    const item = rowToWork(row, names, teamNameById, checklistByWork.get(row.id) ?? []);
+    const item = rowToWork(row, names, teamNameById, checklistByWork.get(row.id) ?? [], assigneesByWork.get(row.id) ?? []);
     item.evidences = attachmentMap.get(row.id) ?? [];
     item.activities = activityMap.get(row.id) ?? [];
     item.comments = commentMap.get(row.id) ?? [];

@@ -2,7 +2,6 @@ import * as React from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import { ClipboardList, MessageSquare, Paperclip } from "lucide-react";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -11,10 +10,11 @@ import {
   DataTableColumnHeader,
 } from "@/components/data-table";
 import { IssueStatusBadge, PriorityBadge, StatusBadge } from "@/components/status-badge";
+import { AssigneeGroup } from "@/components/assignee-group";
 import { TaskListView } from "@/components/task-list-view";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/contexts/AuthContext";
-import { avatarColor, initials, isOverdue } from "@/lib/format";
+import { isOverdue, stripHtml } from "@/lib/format";
 import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
 import type { Issue, IssueStatus, Priority, WorkItem, WorkStatus } from "@/types";
 
@@ -37,6 +37,8 @@ type WorkRow = {
   commentCount: number;
   link: string;
   badge: React.ReactNode;
+  description: string;
+  assignees: string[];
 };
 
 const MONTHS: Record<string, number> = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 };
@@ -68,7 +70,9 @@ function issueColumn(s: IssueStatus): WorkColumn {
 }
 
 function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRow[] {
-  const tasks = works.filter((w) => w.assignedTo === assignee && !w.cancelled);
+  const tasks = works.filter(
+    (w) => (w.assignedTo === assignee || (w.assignees ?? []).includes(assignee)) && !w.cancelled
+  );
   const issueItems = issues.filter(
     (i) => i.assignedTo === assignee || (i.assignees ?? []).includes(assignee)
   );
@@ -92,6 +96,13 @@ function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRo
           commentCount: (w.comments ?? []).length,
           link: `/tasks/${w.number}`,
           badge: <StatusBadge status={st} />,
+          description: stripHtml(w.description ?? ""),
+          assignees:
+            Array.isArray(w.assignees) && w.assignees.length > 0
+              ? w.assignees
+              : w.assignedTo
+                ? [w.assignedTo]
+                : [],
         };
       }
     ),
@@ -112,6 +123,13 @@ function buildRows(assignee: string, works: WorkItem[], issues: Issue[]): WorkRo
         commentCount: (i.comments ?? []).length,
         link: `/issues/${i.number}`,
         badge: <IssueStatusBadge status={i.status} />,
+        description: stripHtml(i.description ?? ""),
+        assignees:
+          Array.isArray(i.assignees) && i.assignees.length > 0
+            ? i.assignees
+            : i.assignedTo
+              ? [i.assignedTo]
+              : [],
       })
     ),
   ];
@@ -167,18 +185,7 @@ const listColumns: ColumnDef<WorkRow>[] = [
       <DataTableColumnHeader column={column} title="Assigned To" />
     ),
     cell: ({ row }) => {
-      const name = row.original.assignee;
-      if (!name) return <span className="text-muted-foreground">—</span>;
-      return (
-        <div className="flex items-center gap-2">
-          <Avatar className="h-6 w-6">
-            <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
-              {initials(name)}
-            </AvatarFallback>
-          </Avatar>
-          <span className="max-w-[120px] truncate text-sm">{name}</span>
-        </div>
-      );
+      return <AssigneeGroup names={row.original.assignees} />;
     },
   },
   {
@@ -297,21 +304,28 @@ export function MyWork() {
                       >
                         <div className="flex items-start justify-between gap-2">
                           <p className="min-w-0 flex-1 text-sm font-medium">{r.title}</p>
-                          <Avatar title={r.assignee} className="h-6 w-6 shrink-0 border-2 border-background">
-                            <AvatarFallback className={`text-[10px] ${avatarColor(r.assignee)}`}>
-                              {initials(r.assignee)}
-                            </AvatarFallback>
-                          </Avatar>
+                          {r.assignees.length > 0 && (
+                            <span className="shrink-0">
+                              <AssigneeGroup names={r.assignees} />
+                            </span>
+                          )}
                         </div>
-                        <div className="mt-4 flex flex-wrap items-center gap-1.5">
-                          <Badge variant="outline" className="px-1.5 py-0 text-[10px] font-normal">
+                        {r.description && (
+                          <p className="mt-0.5 truncate text-xs text-muted-foreground" title={r.description}>
+                            {r.description}
+                          </p>
+                        )}
+                        <div className="mt-auto flex flex-wrap items-center gap-1.5 pt-2">
+                          <Badge variant="outline" className="h-6 px-2 text-xs font-normal">
                             {r.kind === "task" ? "Task" : "Issue"}
                           </Badge>
-                          {r.badge}
+                          <span className="inline-flex items-center [&>*]:h-6 [&>*]:px-2 [&>*]:text-xs [&>*]:font-normal">
+                            {r.badge}
+                          </span>
                         </div>
-                        <div className="mt-auto flex items-center justify-between gap-2 pt-2">
+                        <div className="flex items-center justify-between gap-2 pt-1">
                           <span className="text-[11px] text-muted-foreground">{r.created}</span>
-                          <span className="flex items-center gap-2.5 text-muted-foreground">
+                          <span className="flex shrink-0 items-center gap-2.5 text-muted-foreground">
                             <span className="flex items-center gap-1 text-[11px]">
                               <Paperclip className="h-3.5 w-3.5" />{r.attachCount}
                             </span>

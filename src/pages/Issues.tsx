@@ -4,14 +4,14 @@ import { Link, useNavigate } from "react-router-dom";
 import { Ban, CheckCircle2, Loader2, Plus, Search, Ticket, X } from "lucide-react";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { IssueStatusBadge, PriorityBadge } from "@/components/status-badge";
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { AssigneeGroup } from "@/components/assignee-group";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
 import { TaskListView } from "@/components/task-list-view";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
-import { avatarColor, initials, issueDisplayStatus } from "@/lib/format";
+import { issueDisplayStatus, stripHtml } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
 import { useIssues, useTeams } from "@/hooks/useSupabaseLists";
 import { createIssue } from "@/lib/api/issues";
@@ -176,7 +176,7 @@ export function Issues() {
           <DataTableColumnHeader column={column} title="Description" />
         ),
         cell: ({ row }) => {
-          const desc = row.getValue("description") as string;
+          const desc = stripHtml((row.getValue("description") as string) ?? "");
           if (!desc) return <span className="text-muted-foreground">—</span>;
           return (
             <span className="block max-w-[260px] truncate text-sm text-muted-foreground" title={desc}>
@@ -191,18 +191,14 @@ export function Issues() {
           <DataTableColumnHeader column={column} title="Assigned To" />
         ),
         cell: ({ row }) => {
-          const name = row.getValue("assignedTo") as string;
-          if (!name) return <span className="text-muted-foreground">—</span>;
-          return (
-            <div className="flex items-center gap-2">
-              <Avatar className="h-6 w-6">
-                <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
-                  {initials(name)}
-                </AvatarFallback>
-              </Avatar>
-              <span className="max-w-[120px] truncate text-sm">{name}</span>
-            </div>
-          );
+          const issue = row.original;
+          const names =
+            Array.isArray(issue.assignees) && issue.assignees.length > 0
+              ? issue.assignees
+              : issue.assignedTo
+                ? [issue.assignedTo]
+                : [];
+          return <AssigneeGroup names={names} />;
         },
       },
       {
@@ -221,15 +217,6 @@ export function Issues() {
         ),
         cell: ({ row }) => (
           <IssueStatusBadge status={issueDisplayStatus(row.original)} />
-        ),
-      },
-      {
-        accessorKey: "issueType",
-        header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Issue Type" />
-        ),
-        cell: ({ row }) => (
-          <span className="text-sm whitespace-nowrap">{row.getValue("issueType") || "—"}</span>
         ),
       },
       {

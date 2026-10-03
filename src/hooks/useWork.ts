@@ -137,6 +137,13 @@ export function useWork(workNumber: string | null | undefined): UseWorkResult {
       () => refreshChecklist()
     );
 
+    // Assignee berubah → reload full (assigned_to + junction ikut termuat ulang)
+    channel.on(
+      "postgres_changes",
+      { event: "*", schema: "public", table: "work_assignees", filter: `work_id=eq.${workId}` },
+      () => reload()
+    );
+
     // Comments → hanya refresh comments
     channel.on(
       "postgres_changes",

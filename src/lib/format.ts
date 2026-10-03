@@ -66,8 +66,20 @@ export function formatDate(value: string | number | Date | null | undefined): st
   return `${d.getDate()} ${MONTHS_SHORT[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-export function initials(name: string) {
-  return name
+/** HTML (rich text) -> teks polos satu baris untuk preview tabel/kartu. */
+export function stripHtml(html: string): string {
+  return html
+    .replace(/<[^>]*>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export function initials(name: string) {  return name
     .split(" ")
     .map((p) => p[0])
     .slice(0, 2)

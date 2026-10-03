@@ -82,6 +82,8 @@ export interface WorkItem {
   priority: Priority;
   createdBy: string;
   assignedTo: string;
+  /** Daftar penanggung jawab (multi-user). assignedTo = assignee utama/pertama. */
+  assignees?: string[];
   team: string;
   teamId: string;
   shift: string;

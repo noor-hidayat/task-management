@@ -54,7 +54,7 @@ function useSupabaseList<T>(
 }
 
 export function useWorks(): AsyncState<WorkItem[]> {
-  return useSupabaseList(() => listWorks(), [] as WorkItem[], ["works", "work_checklist", "attachments", "activities", "comments"]);
+  return useSupabaseList(() => listWorks(), [] as WorkItem[], ["works", "work_assignees", "work_checklist", "attachments", "activities", "comments"]);
 }
 
 export function useIssues(): AsyncState<Issue[]> {

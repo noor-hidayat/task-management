@@ -217,8 +217,10 @@ export function TaskDetail() {
     setCancelled(!!base.cancelled);
   }, [base]);
 
-  // ---- Assigned To ----
-  const [assignees, setAssignees] = useState<string[]>(base ? [base.assignedTo] : []);
+  // ---- Assigned To (multi-user; dari junction work_assignees) ----
+  const initialAssignees = (b: typeof base) =>
+    b ? (b.assignees?.length ? b.assignees : [b.assignedTo]) : [];
+  const [assignees, setAssignees] = useState<string[]>(() => initialAssignees(base));
   const [assigneeDialogOpen, setAssigneeDialogOpen] = useState(false);
   const [pendingAssignees, setPendingAssignees] = useState<string[]>([]);
   const [pickerQuery, setPickerQuery] = useState("");
@@ -226,7 +228,7 @@ export function TaskDetail() {
   const pickerInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    setAssignees(base ? [base.assignedTo] : []);
+    setAssignees(initialAssignees(base));
   }, [base]);
 
   /** Simpan perubahan ke Supabase + catat aktivitas. Realtime subscription akan refresh. */
@@ -568,14 +570,19 @@ export function TaskDetail() {
   const submitAssigneeDialog = async () => {
     if (!base) return;
     const added = pendingAssignees.filter((p) => !assignees.includes(p));
+    const finalNames = [...assignees, ...added];
     if (added.length > 0) {
-      setAssignees((prev) => [...prev, ...added]);
+      setAssignees(finalNames);
+      // Simpan SELURUH daftar ke junction work_assignees (primer = pertama),
+      // agar task masuk My Work tiap user yang di-assign.
+      const ids = finalNames
+        .map((name) => allUsers.find((u) => u.name === name)?.id)
+        .filter((v): v is string => Boolean(v));
+      await updateWork(base.id, { assigneeIds: ids });
     }
     const notes: string[] = [];
     let nextComments = comments;
     if (added.length > 0) {
-      const primary = allUsers.find((u) => u.name === added[0]);
-      if (primary) await updateWork(base.id, { assignedToId: primary.id });
       notes.push(`assigned ${added.join(", ")}`);
     }
     if (dialogComment.trim()) {
