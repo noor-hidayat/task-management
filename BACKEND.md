@@ -1,15 +1,16 @@
-# Backend Setup — Supabase + Google Drive
+# Backend Setup — Supabase + Cloudflare R2
 
-Aplikasi ini memakai **Supabase** sebagai database + auth, dan **Google Drive**
-sebagai storage file (evidence). Data diakses langsung dari SPA React via
-`supabase-js` dengan **Row Level Security (RLS)**. Operasi file diproksikan
-lewat **Supabase Edge Functions** agar kredensial Google tidak bocor ke browser.
+Aplikasi ini memakai **Supabase** sebagai database + auth, dan
+**Cloudflare R2** (object storage, S3-compatible) sebagai storage file
+(evidence). Data diakses langsung dari SPA React via `supabase-js` dengan
+**Row Level Security (RLS)**. Operasi file diproksikan lewat **Supabase Edge
+Functions** agar kredensial storage tidak bocor ke browser.
 
 ```
 React SPA ──(supabase-js)──► Supabase
    │                          ├─ Auth (email + password, username → email sintetis)
    │                          ├─ Postgres (data + RLS + realtime)
-   │                          └─ Edge Functions ──► Google Drive API
+   │                          └─ Edge Functions ──► Cloudflare R2 (S3 API)
    └──────────────────────────────┘   (drive, admin-users)
 ```
 
@@ -18,9 +19,7 @@ React SPA ──(supabase-js)──► Supabase
 - Node 18+ dan `pnpm`
 - [Supabase CLI](https://supabase.com/docs/guides/cli) (`npm i -g supabase` atau via `npx`)
 - Project Supabase (URL + anon key + service role key)
-- Google Cloud: Service Account + **Google Drive API** aktif
-- Folder di Google Drive (disarankan Shared Drive) yang di-share ke email
-  Service Account sebagai **Editor**
+- Akun Cloudflare dengan **R2** aktif + sebuah bucket (mis. `tims-evidence`)
 
 ## 2. Konfigurasi frontend
 
@@ -51,7 +50,7 @@ Migrasi:
 ## 4. Set secret Edge Functions
 
 ```bash
-# Kredensial Google Drive
+# Kredensial Cloudflare R2
 supabase secrets set --env-file supabase/functions/.env
 
 # (opsional) untuk admin-users, service role diset terpisah
@@ -60,9 +59,11 @@ supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
 
 Isi `supabase/functions/.env`:
 ```
-GOOGLE_SERVICE_ACCOUNT_EMAIL=...
-GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----\n...\n-----END PRIVATE KEY-----\n"
-GOOGLE_DRIVE_FOLDER_ID=...
+R2_ACCOUNT_ID=...
+R2_ACCESS_KEY_ID=...
+R2_SECRET_ACCESS_KEY=...
+R2_BUCKET=tims-evidence
+# opsional: R2_ENDPOINT, R2_REGION, R2_PREFIX
 ```
 
 ## 5. Deploy Edge Functions
@@ -72,8 +73,11 @@ supabase functions deploy drive
 supabase functions deploy admin-users
 ```
 
-- `drive?action=upload|download|delete` — operasi file ke Google Drive
-  (subfolder per issue/task, mis. `issue-ISS-000101/`).
+- `drive?action=upload|download|delete` — operasi file ke R2
+  (sub-prefix per issue/task, mis. `tims/issue-ISS-000101/`).
+  Nama fungsi tetap `drive` demi kompatibilitas frontend; kolom DB
+  `drive_file_id` kini berisi **object key** R2 dan `drive_folder_id` berisi
+  **prefix**.
 - `admin-users` — create/update/delete user oleh admin (butuh service role).
 
 ## 6. Seed user demo
@@ -101,8 +105,7 @@ pnpm dev
   yang ditugaskan padanya.
 - **Password** tidak pernah disimpan di database aplikasi — ditangani
   Supabase Auth (bcrypt).
-- **Service Account Google** hanya ada di secret Edge Function; tidak pernah
+- **Kredensial R2** hanya ada di secret Edge Function; tidak pernah
   masuk bundle frontend.
-- File Drive diakses lewat proxy Edge Function dengan verifikasi JWT + RLS,
-  sehingga file tetap privat.
-- Scope OAuth `drive.file` → app hanya bisa mengakses file yang ia buat sendiri.
+- File diakses lewat proxy Edge Function dengan verifikasi JWT + RLS,
+  sehingga file tetap privat (bucket tidak perlu publik).

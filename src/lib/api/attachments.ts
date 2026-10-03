@@ -5,14 +5,14 @@ type OwnerKind = "work" | "issue";
 
 /**
  * Ubah error mentah dari Edge Function `drive` jadi pesan yang bisa ditindak.
- * Kasus paling sering: refresh token Google (mode OAuth Gmail) sudah
- * kadaluarsa/dicabut, sehingga upload & unduh SEMUA attachment ikut gagal.
- * Tanpa ini, user cuma lihat JSON mentah Google dan mengira sesinya habis.
+ * Kasus paling sering: kredensial storage (R2) belum diset / salah, sehingga
+ * upload & unduh SEMUA attachment ikut gagal. Tanpa ini, user cuma lihat pesan
+ * mentah dan mengira sesinya habis.
  */
-function friendlyDriveError(raw: string | undefined, fallback: string): string {
+function friendlyStorageError(raw: string | undefined, fallback: string): string {
   const msg = raw ?? "";
-  if (/invalid_grant|expired or revoked/i.test(msg)) {
-    return "Koneksi ke Google Drive terputus — token akses Drive sudah kadaluarsa/dicabut. Hubungi admin untuk menyambungkan ulang Google Drive.";
+  if (/R2_|belum diset|signature|access key|403|401.*r2/i.test(msg)) {
+    return "Koneksi ke storage terputus — kredensial storage (R2) belum diset atau salah. Hubungi admin.";
   }
   if (/missing authorization|unauthorized|\b401\b/i.test(msg)) {
     return "Sesi login kamu sudah berakhir. Login ulang lalu coba lagi.";
@@ -89,7 +89,7 @@ async function compressImage(file: File): Promise<File> {
   }
 }
 
-/** Upload file ke Drive + simpan metadata. Gambar dikompres otomatis dulu. */
+/** Upload file ke storage + simpan metadata. Gambar dikompres otomatis dulu. */
 export async function uploadAttachment(
   ownerType: OwnerKind,
   ownerId: string,
@@ -110,7 +110,7 @@ export async function uploadAttachment(
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(friendlyDriveError(err.error, "Upload gagal"));
+    throw new Error(friendlyStorageError(err.error, "Upload gagal"));
   }
   const data = (await res.json()) as {
     attachment: { id: string; file_name: string; file_type: string; file_size: string };
@@ -125,7 +125,7 @@ export async function uploadAttachment(
   };
 }
 
-/** Hapus attachment (Drive + DB). */
+/** Hapus attachment (storage + DB). */
 export async function deleteAttachment(attachmentId: string, driveFileId: string): Promise<void> {
   const res = await fetch(`${FUNCTIONS_BASE()}?action=delete`, {
     method: "POST",
@@ -134,12 +134,12 @@ export async function deleteAttachment(attachmentId: string, driveFileId: string
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(friendlyDriveError(err.error, "Gagal menghapus attachment"));
+    throw new Error(friendlyStorageError(err.error, "Gagal menghapus attachment"));
   }
 }
 
 /**
- * Buat object URL untuk preview/unduh sebuah file Drive.
+ * Buat object URL untuk preview/unduh sebuah file evidence.
  * Mengambil bytes lewat Edge Function (proxy) sehingga file tetap privat.
  */
 export async function fetchAttachmentObjectUrl(driveFileId: string): Promise<string | null> {

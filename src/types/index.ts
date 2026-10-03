@@ -54,7 +54,7 @@ export interface Evidence {
   uploadedAt: string;
   /** Isi file (data URL) untuk preview lokal sesaat — opsional. */
   dataUrl?: string;
-  /** ID file di Google Drive (sumber sebenarnya). */
+  /** ID file di object storage (sumber sebenarnya). */
   driveFileId?: string;
 }
 

@@ -1,0 +1,737 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TIMS — Mobile Mock</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+/* ===== Design tokens (copy dari src/index.css) ===== */
+:root{
+  color-scheme: light;
+  --background: oklch(1 0 0);
+  --foreground: oklch(0.141 0.005 285.823);
+  --card: oklch(1 0 0);
+  --muted: oklch(0.967 0.001 286.375);
+  --muted-foreground: oklch(0.552 0.016 285.938);
+  --primary: oklch(0.21 0.006 285.885);
+  --primary-foreground: oklch(0.985 0 0);
+  --border: oklch(0.92 0.004 286.32);
+  --input: oklch(0.92 0.004 286.32);
+  --ring: oklch(0.705 0.015 286.067);
+  --destructive: oklch(0.577 0.245 27.325);
+  --radius: 0.625rem;
+  --sheet: oklch(0.985 0 0);
+  /* status */
+  --todo: oklch(0.70 0.16 70);
+  --todo-bg: oklch(0.96 0.04 80);
+  --prog: oklch(0.60 0.14 240);
+  --prog-bg: oklch(0.95 0.03 240);
+  --done: oklch(0.60 0.15 150);
+  --done-bg: oklch(0.95 0.04 150);
+  --canc: oklch(0.58 0.20 27);
+  --canc-bg: oklch(0.95 0.03 27);
+  --shadow: 0 1px 2px rgba(0,0,0,.05), 0 1px 3px rgba(0,0,0,.06);
+}
+html.dark{
+  color-scheme: dark;
+  --background: oklch(0.141 0.005 285.823);
+  --foreground: oklch(0.985 0 0);
+  --card: oklch(0.19 0.006 285.9);
+  --muted: oklch(0.274 0.006 286.033);
+  --muted-foreground: oklch(0.705 0.015 286.067);
+  --primary: oklch(0.985 0 0);
+  --primary-foreground: oklch(0.21 0.006 285.885);
+  --border: oklch(0.274 0.006 286.033);
+  --input: oklch(0.274 0.006 286.033);
+  --ring: oklch(0.442 0.017 285.786);
+  --sheet: oklch(0.19 0.006 285.9);
+  --todo: oklch(0.80 0.14 80); --todo-bg: oklch(0.30 0.06 80);
+  --prog: oklch(0.75 0.12 240); --prog-bg: oklch(0.30 0.06 240);
+  --done: oklch(0.78 0.13 150); --done-bg: oklch(0.30 0.06 150);
+  --canc: oklch(0.72 0.16 27);  --canc-bg: oklch(0.32 0.07 27);
+  --shadow: 0 1px 3px rgba(0,0,0,.4);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{
+  font-family:"Manrope",ui-sans-serif,system-ui,sans-serif;
+  background:var(--muted);
+  color:var(--foreground);
+  min-height:100vh;
+  padding:28px 20px 80px;
+}
+/* ===== Page chrome ===== */
+.page-head{max-width:1180px;margin:0 auto 24px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-end;justify-content:space-between}
+.page-head h1{font-size:1.5rem;font-weight:800;letter-spacing:-.02em}
+.page-head p{font-size:.85rem;color:var(--muted-foreground);margin-top:4px;max-width:560px;line-height:1.5}
+.controls{display:flex;gap:8px;flex-wrap:wrap}
+.toggle-btn{
+  font:inherit;font-size:.8rem;font-weight:600;cursor:pointer;
+  padding:8px 14px;border-radius:999px;border:1px solid var(--border);
+  background:var(--card);color:var(--foreground);transition:.15s;
+}
+.toggle-btn:hover{border-color:var(--ring)}
+.toggle-btn[aria-pressed="true"]{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+/* ===== Gallery ===== */
+.gallery{max-width:1180px;margin:0 auto;display:flex;flex-wrap:wrap;gap:32px 28px;justify-content:center}
+.device-wrap{display:flex;flex-direction:column;align-items:center;gap:12px}
+.device-label{font-size:.8rem;font-weight:700;color:var(--muted-foreground);text-transform:uppercase;letter-spacing:.08em}
+.device-label span{font-weight:500;text-transform:none;letter-spacing:0;opacity:.75}
+/* ===== Device frame ===== */
+.phone{
+  position:relative;width:360px;height:740px;flex-shrink:0;
+  border-radius:44px;padding:11px;
+  background:linear-gradient(150deg,#3a3a3f,#121216 55%,#2a2a30);
+  box-shadow:0 24px 60px -12px rgba(0,0,0,.45), 0 0 0 1px rgba(255,255,255,.06) inset;
+}
+.phone.android{border-radius:34px}
+.phone.iphone::after{ /* notch */
+  content:"";position:absolute;top:20px;left:50%;transform:translateX(-50%);
+  width:104px;height:26px;background:#0b0b0d;border-radius:14px;z-index:60;
+}
+.phone.android::after{ /* punch hole */
+  content:"";position:absolute;top:22px;left:50%;transform:translateX(-50%);
+  width:11px;height:11px;background:#0b0b0d;border-radius:50%;z-index:60;
+}
+.screen{
+  position:relative;width:100%;height:100%;overflow:hidden;
+  border-radius:34px;background:var(--background);color:var(--foreground);
+  display:flex;flex-direction:column;
+}
+.phone.android .screen{border-radius:25px}
+/* ===== Status bar ===== */
+.statusbar{
+  height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;
+  padding:0 24px;font-size:.78rem;font-weight:700;letter-spacing:.01em;
+}
+.phone.iphone .statusbar{padding-top:6px}
+.statusbar .right{display:flex;gap:5px;align-items:center;opacity:.9}
+.statusbar svg{width:15px;height:11px}
+/* ===== App bar ===== */
+.appbar{
+  flex-shrink:0;display:flex;align-items:center;gap:10px;
+  padding:6px 14px 12px;border-bottom:1px solid var(--border);
+}
+.appbar .title{font-size:1.05rem;font-weight:800;letter-spacing:-.01em;flex:1;min-width:0;truncate:ellipsis}
+.appbar .sub{font-size:.7rem;color:var(--muted-foreground);font-weight:600}
+.icon-btn{
+  width:40px;height:40px;border-radius:12px;border:1px solid transparent;background:transparent;
+  display:grid;place-items:center;cursor:pointer;color:var(--foreground);flex-shrink:0;
+}
+.icon-btn:hover{background:var(--muted)}
+.icon-btn svg{width:20px;height:20px}
+.avatar{
+  width:34px;height:34px;border-radius:50%;display:grid;place-items:center;
+  font-size:.72rem;font-weight:800;color:#fff;flex-shrink:0;
+}
+/* ===== Scroll body ===== */
+.body{flex:1;min-height:0;overflow-y:auto;overflow-x:hidden;-webkit-overflow-scrolling:touch}
+.body::-webkit-scrollbar{width:0}
+.pad{padding:14px}
+/* ===== Screens ===== */
+.screen-view{display:none;flex-direction:column;height:100%}
+.screen-view.active{display:flex}
+/* greeting */
+.greet{padding:16px 14px 4px}
+.greet .hi{font-size:.8rem;font-weight:600;color:var(--muted-foreground)}
+.greet .name{font-size:1.35rem;font-weight:800;letter-spacing:-.02em;margin-top:1px}
+.greet .date{font-size:.75rem;color:var(--muted-foreground);margin-top:4px}
+/* KPI */
+.kpi-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;padding:14px}
+.kpi{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;
+  padding:12px 13px;display:flex;flex-direction:column;gap:6px;box-shadow:var(--shadow);
+}
+.kpi .k-top{display:flex;align-items:center;justify-content:space-between}
+.kpi .k-label{font-size:.7rem;font-weight:600;color:var(--muted-foreground)}
+.kpi .k-val{font-size:1.6rem;font-weight:800;letter-spacing:-.02em;line-height:1}
+.kpi .k-ico{width:30px;height:30px;border-radius:9px;display:grid;place-items:center}
+.kpi .k-ico svg{width:16px;height:16px}
+.kpi.danger .k-val{color:var(--canc)}
+/* section head */
+.sec-head{display:flex;align-items:center;justify-content:space-between;padding:6px 14px 10px}
+.sec-head h3{font-size:.92rem;font-weight:800;letter-spacing:-.01em}
+.sec-head a{font-size:.75rem;font-weight:700;color:var(--muted-foreground);text-decoration:none}
+/* segmented filter */
+.seg{display:flex;gap:6px;overflow-x:auto;padding:0 14px 12px;scrollbar-width:none}
+.seg::-webkit-scrollbar{display:none}
+.chip{
+  flex-shrink:0;font-size:.76rem;font-weight:700;padding:7px 13px;border-radius:999px;
+  border:1px solid var(--border);background:var(--card);color:var(--muted-foreground);cursor:pointer;
+}
+.chip.on{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+/* search */
+.search{position:relative;margin:0 14px 12px}
+.search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:17px;height:17px;color:var(--muted-foreground)}
+.search input{
+  width:100%;font:inherit;font-size:.85rem;padding:11px 12px 11px 38px;border-radius:12px;
+  border:1px solid var(--input);background:var(--card);color:var(--foreground);outline:none;
+}
+.search input:focus{border-color:var(--ring)}
+/* task card */
+.list{display:flex;flex-direction:column;gap:9px;padding:0 14px 20px}
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:14px;padding:12px 13px;
+  box-shadow:var(--shadow);cursor:pointer;transition:.15s;text-align:left;font:inherit;color:inherit;width:100%;display:block;
+}
+.card:active{transform:scale(.985)}
+.card .c-top{display:flex;align-items:flex-start;gap:10px}
+.card .c-title{font-size:.87rem;font-weight:700;line-height:1.3;flex:1;min-width:0}
+.card .c-id{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--muted-foreground);font-weight:600;margin-bottom:3px}
+.card .c-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:9px}
+.badge{font-size:.66rem;font-weight:700;padding:3px 9px;border-radius:999px;white-space:nowrap}
+.b-todo{background:var(--todo-bg);color:var(--todo)}
+.b-prog{background:var(--prog-bg);color:var(--prog)}
+.b-done{background:var(--done-bg);color:var(--done)}
+.b-canc{background:var(--canc-bg);color:var(--canc)}
+.b-pri{background:var(--muted);color:var(--muted-foreground);display:inline-flex;align-items:center;gap:4px}
+.b-pri svg{width:11px;height:11px}
+.b-ghost{background:transparent;border:1px solid var(--border);color:var(--muted-foreground)}
+.c-due{margin-left:auto;font-size:.7rem;font-weight:700;color:var(--muted-foreground);display:flex;align-items:center;gap:4px}
+.c-due.over{color:var(--canc)}
+.c-due svg{width:13px;height:13px}
+/* mini list row (dashboard) */
+.row{display:flex;align-items:center;gap:11px;padding:11px 13px;background:var(--card);border:1px solid var(--border);border-radius:13px;cursor:pointer;box-shadow:var(--shadow)}
+.row .r-txt{flex:1;min-width:0}
+.row .r-t{font-size:.82rem;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.row .r-s{font-size:.68rem;color:var(--muted-foreground);margin-top:2px;font-weight:600}
+.dot{width:9px;height:9px;border-radius:50%;flex-shrink:0}
+/* progress */
+.prog-wrap{padding:0 14px 12px}
+.prog-bar{height:6px;border-radius:999px;background:var(--muted);overflow:hidden}
+.prog-bar i{display:block;height:100%;background:var(--primary);border-radius:999px}
+/* detail */
+.d-title{font-size:1.2rem;font-weight:800;line-height:1.25;letter-spacing:-.02em;padding:4px 0 2px}
+.d-block{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:13px;margin:0 14px 11px;box-shadow:var(--shadow)}
+.d-block h4{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--muted-foreground);margin-bottom:10px;display:flex;align-items:center;justify-content:space-between}
+.d-block p{font-size:.84rem;line-height:1.55;color:var(--foreground);opacity:.92}
+.check{display:flex;align-items:center;gap:10px;padding:8px 2px;font-size:.83rem;font-weight:600}
+.check input{width:19px;height:19px;accent-color:var(--primary);flex-shrink:0}
+.check.done span{text-decoration:line-through;color:var(--muted-foreground)}
+.dl{display:flex;align-items:center;justify-content:space-between;padding:10px 2px;border-bottom:1px solid var(--border);font-size:.82rem}
+.dl:last-child{border-bottom:0}
+.dl .k{color:var(--muted-foreground);font-weight:600;display:flex;align-items:center;gap:7px}
+.dl .k svg{width:15px;height:15px}
+.dl .v{font-weight:700}
+/* comment bar */
+.comment-bar{
+  flex-shrink:0;border-top:1px solid var(--border);padding:9px 12px;display:flex;gap:8px;align-items:center;
+  background:var(--background);
+}
+.comment-bar input{flex:1;font:inherit;font-size:.82rem;padding:9px 13px;border-radius:999px;border:1px solid var(--input);background:var(--card);color:var(--foreground);outline:none}
+.comment-bar .send{width:38px;height:38px;border-radius:50%;background:var(--primary);color:var(--primary-foreground);border:0;display:grid;place-items:center;flex-shrink:0}
+.comment-bar .send svg{width:17px;height:17px}
+/* sticky action bar for detail */
+.action-bar{flex-shrink:0;display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--border);background:var(--background)}
+.btn{font:inherit;font-size:.82rem;font-weight:700;padding:11px 14px;border-radius:12px;border:1px solid var(--border);background:var(--card);color:var(--foreground);cursor:pointer;flex:1;display:flex;align-items:center;justify-content:center;gap:6px}
+.btn.primary{background:var(--primary);color:var(--primary-foreground);border-color:var(--primary)}
+.btn svg{width:16px;height:16px}
+/* ===== Bottom nav ===== */
+.tabbar{
+  flex-shrink:0;display:flex;align-items:stretch;border-top:1px solid var(--border);
+  background:color-mix(in oklab, var(--background) 92%, transparent);
+  backdrop-filter:blur(12px);
+  padding-bottom:env(safe-area-inset-bottom,0px);
+}
+.phone.iphone .tabbar{height:78px;padding-bottom:22px}
+.phone.android .tabbar{height:66px;padding-bottom:6px}
+.tab{
+  flex:1;border:0;background:transparent;cursor:pointer;color:var(--muted-foreground);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;
+  font:inherit;font-size:.63rem;font-weight:700;position:relative;padding-top:6px;
+}
+.tab svg{width:22px;height:22px}
+.tab.on{color:var(--foreground)}
+.tab.on::before{content:"";position:absolute;top:2px;width:26px;height:3px;border-radius:999px;background:var(--primary)}
+.tab .pill{position:absolute;top:3px;right:calc(50% - 20px);min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--destructive);color:#fff;font-size:.6rem;font-weight:800;display:grid;place-items:center}
+/* FAB */
+.fab{
+  position:absolute;right:16px;bottom:84px;width:54px;height:54px;border-radius:18px;
+  background:var(--primary);color:var(--primary-foreground);border:0;display:grid;place-items:center;
+  box-shadow:0 8px 22px -6px rgba(0,0,0,.4);cursor:pointer;z-index:40;
+}
+.fab svg{width:25px;height:25px}
+.phone.android .fab{bottom:78px}
+/* ===== Sheet (Menu) ===== */
+.sheet-overlay{position:absolute;inset:0;background:rgba(0,0,0,.45);z-index:50;display:none}
+.sheet-overlay.open{display:block}
+.sheet{
+  position:absolute;left:0;right:0;bottom:0;z-index:55;background:var(--sheet);
+  border-radius:22px 22px 0 0;border-top:1px solid var(--border);
+  transform:translateY(100%);transition:transform .25s cubic-bezier(.32,.72,0,1);
+  padding-bottom:calc(env(safe-area-inset-bottom,0px) + 12px);max-height:82%;overflow-y:auto;
+}
+.sheet.open{transform:translateY(0)}
+.sheet .handle{width:38px;height:4px;border-radius:999px;background:var(--border);margin:10px auto 6px}
+.sheet .s-head{padding:6px 18px 14px;display:flex;align-items:center;gap:12px;border-bottom:1px solid var(--border)}
+.sheet .s-name{font-size:.95rem;font-weight:800}
+.sheet .s-role{font-size:.72rem;color:var(--muted-foreground);font-weight:600}
+.sheet .s-item{display:flex;align-items:center;gap:14px;padding:14px 18px;font-size:.88rem;font-weight:600;cursor:pointer;border:0;background:transparent;width:100%;text-align:left;font-family:inherit;color:inherit}
+.sheet .s-item:hover{background:var(--muted)}
+.sheet .s-item svg{width:20px;height:20px;color:var(--muted-foreground)}
+.sheet .s-item .badge-n{margin-left:auto;font-size:.66rem;font-weight:800;background:var(--muted);padding:3px 9px;border-radius:999px;color:var(--muted-foreground)}
+/* ===== Full screen form ===== */
+.form-pad{padding:14px;display:flex;flex-direction:column;gap:15px}
+.field label{display:block;font-size:.75rem;font-weight:700;margin-bottom:6px}
+.field input,.field select,.field textarea{
+  width:100%;font:inherit;font-size:.85rem;padding:12px 13px;border-radius:12px;
+  border:1px solid var(--input);background:var(--card);color:var(--foreground);outline:none;
+}
+.field textarea{min-height:96px;resize:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--ring)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+/* annotation callouts */
+.note{max-width:1180px;margin:36px auto 0;display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(250px,1fr))}
+.note-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;box-shadow:var(--shadow)}
+.note-card h4{font-size:.85rem;font-weight:800;margin-bottom:7px;display:flex;align-items:center;gap:7px}
+.note-card p{font-size:.79rem;line-height:1.55;color:var(--muted-foreground)}
+.note-card code{font-size:.74rem;background:var(--muted);padding:1px 5px;border-radius:5px;font-family:ui-monospace,monospace}
+.note-title{max-width:1180px;margin:44px auto 16px;font-size:1.15rem;font-weight:800;letter-spacing:-.02em}
+</style>
+</head>
+<body>
+
+<div class="page-head">
+  <div>
+    <h1>TIMS — Mobile Mock</h1>
+    <p>Prototype layout <b>mobile-first</b> (opsi C): bottom tab bar, list-first, detail full-screen, bottom sheet. Token warna &amp; font disamain sama app asli. Klik tab / kartu di frame pertama buat navigasi.</p>
+  </div>
+  <div class="controls">
+    <button class="toggle-btn" id="frameToggle" aria-pressed="false">📱 iPhone mode</button>
+    <button class="toggle-btn" id="themeToggle" aria-pressed="false">🌙 Dark</button>
+  </div>
+</div>
+
+<div class="gallery">
+
+  <!-- ============ 1. INTERACTIVE DEVICE ============ -->
+  <div class="device-wrap">
+    <div class="device-label">Interaktif <span>— coba tap tab &amp; kartu</span></div>
+    <div class="phone iphone" id="livePhone">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="right">
+          <svg viewBox="0 0 18 12" fill="currentColor"><rect x="0" y="7" width="3" height="5" rx="1"/><rect x="4.5" y="4.5" width="3" height="7.5" rx="1"/><rect x="9" y="2" width="3" height="10" rx="1"/><rect x="13.5" y="0" width="3" height="12" rx="1"/></svg>
+          <svg viewBox="0 0 18 12" fill="currentColor"><path d="M9 10.5 1 3.5a11 11 0 0 1 16 0Z" opacity=".9"/></svg>
+          <svg viewBox="0 0 26 12" fill="none"><rect x="0.5" y="0.5" width="21" height="11" rx="3" stroke="currentColor" opacity=".5"/><rect x="2" y="2" width="16" height="8" rx="1.5" fill="currentColor"/><rect x="23" y="4" width="2" height="4" rx="1" fill="currentColor" opacity=".5"/></svg>
+        </span></div>
+
+        <!-- ---- HOME ---- -->
+        <div class="screen-view active" data-view="home">
+          <div class="appbar">
+            <div style="flex:1"><div class="title">Dashboard</div></div>
+            <button class="icon-btn" aria-label="Notifikasi" style="position:relative">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+              <span style="position:absolute;top:5px;right:5px;width:8px;height:8px;border-radius:50%;background:var(--destructive);border:2px solid var(--background)"></span>
+            </button>
+            <span class="avatar" style="background:oklch(0.55 0.15 250)">AD</span>
+          </div>
+          <div class="body">
+            <div class="greet">
+              <div class="hi">Good Morning</div>
+              <div class="name">Andi Pratama</div>
+              <div class="date">Friday, 3 October 2026</div>
+            </div>
+            <div class="kpi-grid">
+              <div class="kpi">
+                <div class="k-top"><span class="k-label">Task Aktif</span>
+                  <span class="k-ico" style="background:var(--prog-bg);color:var(--prog)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span></div>
+                <div class="k-val">12</div>
+              </div>
+              <div class="kpi danger">
+                <div class="k-top"><span class="k-label">Overdue</span>
+                  <span class="k-ico" style="background:var(--canc-bg);color:var(--canc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span></div>
+                <div class="k-val">3</div>
+              </div>
+              <div class="kpi">
+                <div class="k-top"><span class="k-label">Selesai</span>
+                  <span class="k-ico" style="background:var(--done-bg);color:var(--done)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/></svg></span></div>
+                <div class="k-val">48</div>
+              </div>
+              <div class="kpi">
+                <div class="k-top"><span class="k-label">Issues</span>
+                  <span class="k-ico" style="background:var(--todo-bg);color:var(--todo)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="2.5"/></svg></span></div>
+                <div class="k-val">5</div>
+              </div>
+            </div>
+            <div class="sec-head"><h3>My Work</h3><a href="#" data-nav="mywork">Lihat semua</a></div>
+            <div class="list" style="padding-bottom:24px">
+              <div class="row" data-open="detail">
+                <span class="dot" style="background:var(--prog)"></span>
+                <div class="r-txt"><div class="r-t">Cek pompa cooling tower #3</div><div class="r-s">TSK-000142 · Due hari ini</div></div>
+                <span class="badge b-prog">In Progress</span>
+              </div>
+              <div class="row" data-open="detail">
+                <span class="dot" style="background:var(--todo)"></span>
+                <div class="r-txt"><div class="r-t">Inspeksi panel listrik area B</div><div class="r-s">TSK-000139 · Due 5 Okt</div></div>
+                <span class="badge b-todo">To Do</span>
+              </div>
+              <div class="row" data-open="detail">
+                <span class="dot" style="background:var(--canc)"></span>
+                <div class="r-txt"><div class="r-t">Ganti filter AHU lantai 2</div><div class="r-s">TSK-000131 · Overdue 2 hari</div></div>
+                <span class="badge b-canc">Overdue</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- MY WORK ---- -->
+        <div class="screen-view" data-view="mywork">
+          <div class="appbar"><div style="flex:1"><div class="title">My Work</div><div class="sub">18 item ditugaskan ke kamu</div></div>
+            <button class="icon-btn" aria-label="Filter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M7 12h10M11 18h2"/></svg></button>
+          </div>
+          <div class="body">
+            <div style="height:14px"></div>
+            <div class="seg">
+              <button class="chip on">Semua 18</button>
+              <button class="chip">To Do 6</button>
+              <button class="chip">In Progress 4</button>
+              <button class="chip">Done 8</button>
+            </div>
+            <div class="list">
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000142</div><div class="c-title">Cek pompa cooling tower #3</div></div><span class="avatar" style="background:oklch(0.55 0.15 250)">AP</span></div>
+                <div class="c-meta">
+                  <span class="badge b-prog">In Progress</span>
+                  <span class="badge b-pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>High</span>
+                  <span class="c-due"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Hari ini</span>
+                </div>
+              </button>
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000139</div><div class="c-title">Inspeksi panel listrik area B</div></div><span class="avatar" style="background:oklch(0.55 0.15 250)">AP</span></div>
+                <div class="c-meta">
+                  <span class="badge b-todo">To Do</span>
+                  <span class="badge b-pri"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z"/></svg>Normal</span>
+                  <span class="c-due"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>5 Okt</span>
+                </div>
+              </button>
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">ISS-000101</div><div class="c-title">Kebocoran pipa steam line 4</div></div><span class="avatar" style="background:oklch(0.60 0.16 30)">RS</span></div>
+                <div class="c-meta">
+                  <span class="badge b-canc">Overdue</span>
+                  <span class="badge b-ghost">Issue</span>
+                  <span class="c-due over"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>1 Okt</span>
+                </div>
+              </button>
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000128</div><div class="c-title">Kalibrasi flow meter lini produksi 2</div></div><span class="avatar" style="background:oklch(0.55 0.15 250)">AP</span></div>
+                <div class="c-meta">
+                  <span class="badge b-done">Completed</span>
+                  <span class="badge b-pri">Normal</span>
+                  <span class="c-due">28 Sep</span>
+                </div>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ---- TASKS ---- -->
+        <div class="screen-view" data-view="tasks">
+          <div class="appbar"><div style="flex:1"><div class="title">Tasks</div></div>
+            <button class="icon-btn" aria-label="Filter"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M7 12h10M11 18h2"/></svg></button>
+            <button class="icon-btn" aria-label="Urutkan"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m3 16 4 4 4-4M7 20V4M21 8l-4-4-4 4M17 4v16"/></svg></button>
+          </div>
+          <div class="body">
+            <div style="height:14px"></div>
+            <div class="search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg>
+              <input placeholder="Cari ID / judul task…" />
+            </div>
+            <div class="seg">
+              <button class="chip on">Semua</button><button class="chip">To Do</button><button class="chip">In Progress</button><button class="chip">Done</button><button class="chip">Cancelled</button>
+            </div>
+            <div class="list">
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000142</div><div class="c-title">Cek pompa cooling tower #3</div></div><span class="avatar" style="background:oklch(0.55 0.15 250)">AP</span></div>
+                <div class="c-meta"><span class="badge b-prog">In Progress</span><span class="badge b-pri">High</span><span class="c-due">Hari ini</span></div>
+              </button>
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000141</div><div class="c-title">Lubrikasi bearing conveyor C-12</div></div><span class="avatar" style="background:oklch(0.55 0.15 120)">BW</span></div>
+                <div class="c-meta"><span class="badge b-todo">To Do</span><span class="badge b-pri">Normal</span><span class="c-due">6 Okt</span></div>
+              </button>
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000140</div><div class="c-title">Bersihkan strainer pompa P-204</div></div><span class="avatar" style="background:oklch(0.55 0.15 320)">SR</span></div>
+                <div class="c-meta"><span class="badge b-todo">To Do</span><span class="badge b-pri">Low</span><span class="c-due">7 Okt</span></div>
+              </button>
+              <button class="card" data-open="detail">
+                <div class="c-top"><div style="flex:1"><div class="c-id">TSK-000139</div><div class="c-title">Inspeksi panel listrik area B</div></div><span class="avatar" style="background:oklch(0.55 0.15 250)">AP</span></div>
+                <div class="c-meta"><span class="badge b-todo">To Do</span><span class="badge b-pri">Normal</span><span class="c-due">5 Okt</span></div>
+              </button>
+            </div>
+          </div>
+          <button class="fab" aria-label="Task baru" data-nav="newtask">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </button>
+        </div>
+
+        <!-- ---- DETAIL ---- -->
+        <div class="screen-view" data-view="detail">
+          <div class="appbar">
+            <button class="icon-btn" data-nav="tasks" aria-label="Kembali"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+            <div style="flex:1"><div class="sub" style="font-family:ui-monospace,monospace">TSK-000142</div></div>
+            <button class="icon-btn" aria-label="Aksi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+          </div>
+          <div class="body">
+            <div class="pad" style="padding-bottom:4px">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <span class="badge b-prog">In Progress</span><span class="badge b-pri">High</span>
+              </div>
+              <div class="d-title">Cek pompa cooling tower #3</div>
+            </div>
+            <div class="prog-wrap">
+              <div style="display:flex;justify-content:space-between;font-size:.7rem;font-weight:700;color:var(--muted-foreground);margin-bottom:6px"><span>Progress checklist</span><span>2/4 · 50%</span></div>
+              <div class="prog-bar"><i style="width:50%"></i></div>
+            </div>
+
+            <div class="d-block">
+              <h4>Checklist</h4>
+              <label class="check done"><input type="checkbox" checked><span>Cek level oli</span></label>
+              <label class="check done"><input type="checkbox" checked><span>Ukur vibrasi bearing</span></label>
+              <label class="check"><input type="checkbox"><span>Cek temperatur outlet</span></label>
+              <label class="check"><input type="checkbox"><span>Foto kondisi pompa</span></label>
+            </div>
+
+            <div class="d-block">
+              <h4>Deskripsi</h4>
+              <p>Lakukan pengecekan rutin pompa cooling tower #3. Pastikan tidak ada kebocoran, vibrasi berlebih, atau suara abnormal. Lampirkan foto kondisi pompa sebagai evidence.</p>
+            </div>
+
+            <div class="d-block">
+              <h4>Detail</h4>
+              <div class="dl"><span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>Assigned To</span><span class="v" style="display:flex;align-items:center;gap:6px"><span class="avatar" style="width:22px;height:22px;font-size:.58rem;background:oklch(0.55 0.15 250)">AP</span>Andi P.</span></div>
+              <div class="dl"><span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V4s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22v-7"/></svg>Priority</span><span class="v">High</span></div>
+              <div class="dl"><span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg>Due Date</span><span class="v" style="color:var(--canc)">Hari ini</span></div>
+              <div class="dl"><span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 21h18M5 21V7l8-4v18M19 21V11l-6-4"/></svg>Plant</span><span class="v">Plant 1</span></div>
+              <div class="dl"><span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>Location</span><span class="v">Area Utility</span></div>
+              <div class="dl"><span class="k"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m21.4 11.05-9.19 9.19a2 2 0 0 1-2.83 0l-7.1-7.1a2 2 0 0 1 0-2.83l9.19-9.19a2 2 0 0 1 1.42-.59H20a2 2 0 0 1 2 2v6.09a2 2 0 0 1-.59 1.42Z"/><path d="M16 8h.01"/></svg>Attachment</span><span class="v">2 file</span></div>
+            </div>
+
+            <div class="d-block">
+              <h4>Komentar <span style="text-transform:none;letter-spacing:0;color:var(--muted-foreground)">2</span></h4>
+              <div style="display:flex;gap:9px;margin-bottom:12px">
+                <span class="avatar" style="width:28px;height:28px;font-size:.6rem;background:oklch(0.60 0.16 30)">RS</span>
+                <div style="flex:1"><div style="font-size:.72rem;font-weight:700">Rudi S. <span style="color:var(--muted-foreground);font-weight:500">· 2 jam lalu</span></div><p style="margin-top:3px">Vibrasi agak tinggi, tolong cek alignment juga ya @Andi Pratama</p></div>
+              </div>
+              <div style="display:flex;gap:9px">
+                <span class="avatar" style="width:28px;height:28px;font-size:.6rem;background:oklch(0.55 0.15 250)">AP</span>
+                <div style="flex:1"><div style="font-size:.72rem;font-weight:700">Andi P. <span style="color:var(--muted-foreground);font-weight:500">· 1 jam lalu</span></div><p style="margin-top:3px">Oke, sudah masuk checklist.</p></div>
+              </div>
+            </div>
+            <div style="height:6px"></div>
+          </div>
+          <div class="comment-bar">
+            <input placeholder="Tulis komentar…" />
+            <button class="send" aria-label="Kirim"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></svg></button>
+          </div>
+        </div>
+
+        <!-- ---- NEW TASK ---- -->
+        <div class="screen-view" data-view="newtask">
+          <div class="appbar">
+            <button class="icon-btn" data-nav="tasks" aria-label="Tutup"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg></button>
+            <div style="flex:1"><div class="title">New Task</div></div>
+          </div>
+          <div class="body">
+            <div class="form-pad">
+              <div class="field"><label>Judul task *</label><input placeholder="Apa yang perlu dikerjakan?" /></div>
+              <div class="field"><label>Deskripsi</label><textarea placeholder="Detail / instruksi…"></textarea></div>
+              <div class="two">
+                <div class="field"><label>Priority</label><select><option>Normal</option><option>High</option><option>Low</option></select></div>
+                <div class="field"><label>Due date</label><input type="date" value="2026-10-06" /></div>
+              </div>
+              <div class="field"><label>Assignee</label><input placeholder="Cari orang…" /></div>
+              <div class="two">
+                <div class="field"><label>Plant</label><select><option>Plant 1</option><option>Plant 2</option></select></div>
+                <div class="field"><label>Location</label><select><option>Area Utility</option><option>Area Produksi</option></select></div>
+              </div>
+            </div>
+          </div>
+          <div class="action-bar">
+            <button class="btn" data-nav="tasks">Batal</button>
+            <button class="btn primary">Buat Task</button>
+          </div>
+        </div>
+
+        <!-- ===== Bottom nav (shared) ===== -->
+        <div class="tabbar">
+          <button class="tab on" data-nav="home"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="M9 22V12h6v10"/></svg>Home</button>
+          <button class="tab" data-nav="mywork"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="m9 14 2 2 4-4"/></svg>My Work</button>
+          <button class="tab" data-nav="tasks"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 12h10M11 18h10M3 6h18"/><circle cx="6" cy="12" r="1"/><circle cx="6" cy="18" r="1"/></svg>Tasks</button>
+          <button class="tab" data-nav="issues"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/></svg>Issues<span class="pill">5</span></button>
+          <button class="tab" data-nav="menu"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Menu</button>
+        </div>
+
+        <!-- ===== Menu sheet ===== -->
+        <div class="sheet-overlay" data-sheet-overlay></div>
+        <div class="sheet" data-sheet>
+          <div class="handle"></div>
+          <div class="s-head">
+            <span class="avatar" style="width:42px;height:42px;background:oklch(0.55 0.15 250)">AP</span>
+            <div><div class="s-name">Andi Pratama</div><div class="s-role">Operator · Tim Maintenance</div></div>
+          </div>
+          <button class="s-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 3v18h18"/><path d="m7 15 4-4 4 4 5-6"/></svg>Reporting</button>
+          <button class="s-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>Teams</button>
+          <button class="s-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z"/><circle cx="12" cy="12" r="3"/></svg>Settings</button>
+          <button class="s-item"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/></svg>Mode Gelap</button>
+          <button class="s-item" style="color:var(--canc)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" style="color:var(--canc)"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>Keluar</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 2. STATIC: LIST-FIRST vs TABLE ============ -->
+  <div class="device-wrap">
+    <div class="device-label">Sebelum / Sesudah <span>— Tasks</span></div>
+    <div class="phone android">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="right">▮▮▮ ⌁ ▰</span></div>
+        <div class="appbar"><div style="flex:1"><div class="title">Tasks</div><div class="sub" style="color:var(--canc)">❌ Tabel desktop — kepotong</div></div></div>
+        <div class="body" style="background:var(--muted)">
+          <div style="overflow:hidden;background:var(--card);border-bottom:1px solid var(--border)">
+            <table style="border-collapse:collapse;font-size:.62rem;white-space:nowrap">
+              <thead><tr style="background:var(--muted)">
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">ID</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Title</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Desc</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Assign</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Prio</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Status</th>
+                <th style="padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)">Due</th>
+              </tr></thead>
+              <tbody>
+                <tr><td style="padding:9px 10px;border-bottom:1px solid var(--border);font-family:monospace">TSK-000142</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Cek pompa…</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Lakukan…</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Andi P.</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">High</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">In Prog</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Hari ini</td></tr>
+                <tr><td style="padding:9px 10px;border-bottom:1px solid var(--border);font-family:monospace">TSK-000141</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Lubrikasi…</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">—</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Budi W.</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">Norm</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">To Do</td><td style="padding:9px 10px;border-bottom:1px solid var(--border)">6 Okt</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div style="padding:14px;color:var(--muted-foreground);font-size:.75rem;line-height:1.5">
+            Kolom <b>Desc / Assign / Due</b> ke-crop di luar layar. User harus scroll horizontal → pengalaman buruk di HP.
+          </div>
+        </div>
+        <div class="tabbar"><button class="tab on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 12h10M11 18h10M3 6h18"/></svg>Tasks</button><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>Issues</button><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Menu</button></div>
+      </div>
+    </div>
+    <div style="font-size:.8rem;font-weight:700;color:var(--canc);text-align:center">↓ diganti jadi card list ↓</div>
+    <div class="phone android">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="right">▮▮▮ ⌁ ▰</span></div>
+        <div class="appbar"><div style="flex:1"><div class="title">Tasks</div><div class="sub" style="color:var(--done)">✅ Card list — list-first</div></div></div>
+        <div class="body">
+          <div style="height:14px"></div>
+          <div class="list">
+            <button class="card"><div class="c-top"><div style="flex:1"><div class="c-id">TSK-000142</div><div class="c-title">Cek pompa cooling tower #3</div></div><span class="avatar" style="background:oklch(0.55 0.15 250)">AP</span></div>
+              <div class="c-meta"><span class="badge b-prog">In Progress</span><span class="badge b-pri">High</span><span class="c-due">Hari ini</span></div></button>
+            <button class="card"><div class="c-top"><div style="flex:1"><div class="c-id">TSK-000141</div><div class="c-title">Lubrikasi bearing conveyor C-12</div></div><span class="avatar" style="background:oklch(0.55 0.15 120)">BW</span></div>
+              <div class="c-meta"><span class="badge b-todo">To Do</span><span class="badge b-pri">Normal</span><span class="c-due">6 Okt</span></div></button>
+            <button class="card"><div class="c-top"><div style="flex:1"><div class="c-id">TSK-000140</div><div class="c-title">Bersihkan strainer pompa P-204</div></div><span class="avatar" style="background:oklch(0.55 0.15 320)">SR</span></div>
+              <div class="c-meta"><span class="badge b-todo">To Do</span><span class="badge b-pri">Low</span><span class="c-due">7 Okt</span></div></button>
+          </div>
+        </div>
+        <div class="tabbar"><button class="tab on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 12h10M11 18h10M3 6h18"/></svg>Tasks</button><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>Issues</button><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Menu</button></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ 3. KANBAN → HORIZONTAL SCROLL ============ -->
+  <div class="device-wrap">
+    <div class="device-label">My Work <span>— kanban scroll-snap</span></div>
+    <div class="phone android">
+      <div class="screen">
+        <div class="statusbar"><span>9:41</span><span class="right">▮▮▮ ⌁ ▰</span></div>
+        <div class="appbar"><div style="flex:1"><div class="title">My Work</div><div class="sub">Kanban · geser ke samping →</div></div></div>
+        <div class="body" style="overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;display:flex;gap:12px;padding:14px">
+          <div style="scroll-snap-align:center;flex:0 0 84%;background:var(--muted);border:1px solid var(--border);border-radius:16px;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:.85rem">To Do</b><span class="badge b-todo">6</span></div>
+            <div class="card" style="margin-bottom:9px"><div class="c-id">TSK-000139</div><div class="c-title">Inspeksi panel listrik area B</div><div class="c-meta"><span class="badge b-pri">Normal</span></div></div>
+            <div class="card"><div class="c-id">TSK-000141</div><div class="c-title">Lubrikasi bearing conveyor C-12</div><div class="c-meta"><span class="badge b-pri">Normal</span></div></div>
+          </div>
+          <div style="scroll-snap-align:center;flex:0 0 84%;background:var(--muted);border:1px solid var(--border);border-radius:16px;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:.85rem">In Progress</b><span class="badge b-prog">4</span></div>
+            <div class="card"><div class="c-id">TSK-000142</div><div class="c-title">Cek pompa cooling tower #3</div><div class="c-meta"><span class="badge b-pri">High</span></div></div>
+          </div>
+          <div style="scroll-snap-align:center;flex:0 0 84%;background:var(--muted);border:1px solid var(--border);border-radius:16px;padding:12px">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px"><b style="font-size:.85rem">Completed</b><span class="badge b-done">8</span></div>
+            <div class="card"><div class="c-id">TSK-000128</div><div class="c-title">Kalibrasi flow meter lini 2</div></div>
+          </div>
+        </div>
+        <div class="tabbar"><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>Home</button><button class="tab on"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>My Work</button><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 12h10M11 18h10M3 6h18"/></svg>Tasks</button><button class="tab"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M3 12h18M3 18h18"/></svg>Menu</button></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<div class="note-title">Catatan desain &amp; implementasi</div>
+<div class="note">
+  <div class="note-card">
+    <h4>🧭 Bottom tab bar</h4>
+    <p>Ganti sidebar desktop. 5 slot: <b>Home · My Work · Tasks · Issues · Menu</b>. Slot "Menu" buka bottom sheet berisi Reporting, Teams, Settings, Users (admin), tema, logout. Gantikan <code>SidebarTrigger</code> yang sekarang nggak pernah dipakai.</p>
+  </div>
+  <div class="note-card">
+    <h4>📋 List-first, bukan tabel</h4>
+    <p>Di <code>&lt;md</code>, <code>DataTable</code> dirender jadi kartu (title, ID, status, priority, assignee, due). Tetap ada search + filter chip. Tabel tetap dipakai di desktop. Zero horizontal-scroll di HP.</p>
+  </div>
+  <div class="note-card">
+    <h4>📱 Detail full-screen</h4>
+    <p><code>TaskDetail</code> jadi layar penuh: header back + judul + status, checklist, detail collapsible, komentar, lalu <b>action bar sticky</b> di bawah (Start / Complete / Cancel). Panel "Details" 320px desktop jadi accordion di HP.</p>
+  </div>
+  <div class="note-card">
+    <h4>🖐️ Touch &amp; safe-area</h4>
+    <p>Semua target ≥44px (sekarang <code>h-9</code>=36px). Pakai <code>env(safe-area-inset-bottom)</code> buat iPhone home-bar &amp; Android gesture bar — makanya tab bar iPhone 78px vs Android 66px. <code>viewport-fit=cover</code> wajib ditambah di <code>index.html</code>.</p>
+  </div>
+  <div class="note-card">
+    <h4>📸 Evidence kamera</h4>
+    <p>Ini app operator lapangan: <code>FileUploadDialog</code> tambah <code>capture="environment"</code> biar langsung buka kamera HP, bukan cuma file picker. Foto otomatis ke Google Drive lewat Edge Function yang sudah ada.</p>
+  </div>
+  <div class="note-card">
+    <h4>🎯 Prioritas implementasi</h4>
+    <p>1) Tab bar + routing mobile → 2) card list Tasks/MyWork → 3) detail full-screen → 4) bottom sheet Menu → 5) FAB new task → 6) safe-area + touch target → 7) (opsional) PWA manifest.</p>
+  </div>
+</div>
+
+<script>
+// ---- Navigasi mock ----
+const views = document.querySelectorAll('#livePhone .screen-view');
+const tabs = document.querySelectorAll('#livePhone .tab');
+const sheet = document.querySelector('[data-sheet]');
+const overlay = document.querySelector('[data-sheet-overlay]');
+
+function go(view){
+  if(view === 'menu'){ sheet.classList.add('open'); overlay.classList.add('open'); return; }
+  if(view === 'issues'){ view = 'tasks'; } // mock: issues reuse tasks screen
+  views.forEach(v => v.classList.toggle('active', v.dataset.view === view));
+  tabs.forEach(t => t.classList.toggle('on', t.dataset.nav === view));
+  const body = document.querySelector('#livePhone .screen-view.active .body');
+  if(body) body.scrollTop = 0;
+}
+function closeSheet(){ sheet.classList.remove('open'); overlay.classList.remove('open'); }
+
+document.querySelectorAll('#livePhone [data-nav]').forEach(el => {
+  el.addEventListener('click', e => { e.preventDefault(); closeSheet(); go(el.dataset.nav); });
+});
+document.querySelectorAll('#livePhone [data-open="detail"]').forEach(el => {
+  el.addEventListener('click', () => go('detail'));
+});
+overlay.addEventListener('click', closeSheet);
+
+// ---- iPhone / Android frame ----
+const frameToggle = document.getElementById('frameToggle');
+frameToggle.addEventListener('click', () => {
+  const phone = document.getElementById('livePhone');
+  const isIphone = phone.classList.toggle('iphone');
+  phone.classList.toggle('android', !isIphone);
+  frameToggle.textContent = isIphone ? '📱 iPhone mode' : '🤖 Android mode';
+  frameToggle.setAttribute('aria-pressed', String(!isIphone));
+});
+
+// ---- Dark mode ----
+const themeToggle = document.getElementById('themeToggle');
+themeToggle.addEventListener('click', () => {
+  const dark = document.documentElement.classList.toggle('dark');
+  themeToggle.textContent = dark ? '☀️ Light' : '🌙 Dark';
+  themeToggle.setAttribute('aria-pressed', String(dark));
+});
+</script>
+</body>
+</html>

@@ -280,7 +280,7 @@ export function TaskDetail() {
   // ---- Attachment ----
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
   const [previewItem, setPreviewItem] = useState<AttachmentItem | null>(null);
-  // Object URL (hasil fetch dari Drive) per attachment id.
+  // Object URL (hasil fetch dari storage) per attachment id.
   const objectUrlsRef = useRef<Map<string, string>>(new Map());
   const [objectUrls, setObjectUrls] = useState<Record<string, string>>({});
 

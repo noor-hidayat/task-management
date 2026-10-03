@@ -211,7 +211,7 @@ export async function updateWork(
 }
 
 export async function deleteWork(id: string): Promise<void> {
-  // Hapus file Drive + metadata attachment satu per satu (best effort).
+  // Hapus file di storage + metadata attachment satu per satu (best effort).
   // Sisa baris (comments/activities/notifications/attachments) dibersihkan
   // oleh trigger DB saat parent dihapus.
   const { data: atts } = await supabase

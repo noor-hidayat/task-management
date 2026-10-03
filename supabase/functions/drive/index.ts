@@ -1,5 +1,5 @@
 // Edge Function: drive
-// Router untuk operasi file evidence ke Google Drive.
+// Router untuk operasi file evidence ke object storage (Cloudflare R2).
 //
 // Endpoint (POST JSON kecuali upload = multipart/form-data):
 //   ?action=upload   form-data: owner_type, owner_id, owner_label, file
@@ -8,17 +8,20 @@
 //
 // Verifikasi JWT Supabase (verify_jwt=true di config.toml), dan cek
 // keanggotaan user terhadap owner entity sebelum upload/download/delete.
+//
+// Catatan: nama fungsi tetap "drive" (kompatibel dengan frontend). Kolom DB
+// `drive_file_id` kini berisi object key R2, `drive_folder_id` berisi prefix.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, errorResponse, json } from "../_shared/cors.ts";
 import {
   deleteFile,
   downloadFile,
-  ensureFolder,
+  folderPrefix,
   getFileMeta,
-  rootFolderId,
+  rootPrefix,
   uploadFile,
-} from "../_shared/drive.ts";
+} from "../_shared/storage.ts";
 
 type OwnerKind = "work" | "issue";
 
@@ -93,14 +96,12 @@ async function handleUpload(
   if (!(await canAccessOwner(supabase, ownerType, ownerId)))
     return errorResponse("Tidak berhak mengakses entitas ini", 403);
 
-  // Subfolder per issue/task: {owner_type}-{label}
-  const root = rootFolderId();
-  const folderName = `${ownerType}-${ownerLabel}`;
-  const folderId = await ensureFolder(folderName, root);
+  // Sub-prefix per issue/task: {owner_type}-{label}
+  const prefix = folderPrefix(rootPrefix(), `${ownerType}-${ownerLabel}`);
 
   const bytes = new Uint8Array(await file.arrayBuffer());
   const uploaded = await uploadFile({
-    folderId,
+    prefix,
     fileName: file.name,
     mimeType: file.type || "application/octet-stream",
     bytes,
@@ -112,7 +113,7 @@ async function handleUpload(
       owner_type: ownerType,
       owner_id: ownerId,
       drive_file_id: uploaded.id,
-      drive_folder_id: folderId,
+      drive_folder_id: prefix,
       file_name: uploaded.name,
       file_type: file.type || "",
       file_size: formatSize(bytes.length),
@@ -147,7 +148,7 @@ async function handleDownload(
   const meta = await getFileMeta(fileId);
   const upstream = await downloadFile(fileId);
   if (!upstream.ok || !upstream.body)
-    return errorResponse(`Gagal unduh dari Drive: ${upstream.status}`, 502);
+    return errorResponse(`Gagal unduh dari storage: ${upstream.status}`, 502);
 
   return new Response(upstream.body, {
     headers: {
@@ -179,8 +180,8 @@ async function handleDelete(
   try {
     await deleteFile(fileId);
   } catch (e) {
-    // Lanjut hapus metadata walau Drive gagal (mis. sudah hilang).
-    console.error("Drive delete error:", e);
+    // Lanjut hapus metadata walau storage gagal (mis. sudah hilang).
+    console.error("Storage delete error:", e);
   }
 
   const { error } = await supabase.from("attachments").delete().eq("id", attachment_id);
