@@ -1295,8 +1295,8 @@ export function IssueDetail() {
                       className="border-0 bg-transparent pl-9 shadow-none focus-visible:ring-0"
                     />
                     {pickerSuggestions.length > 0 && (
-                      <div className="absolute right-2 left-2 top-full z-50 mt-1 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg">
-                        {pickerSuggestions.slice(0, 3).map((u) => (
+                      <div className="absolute right-2 left-2 top-full z-50 mt-1 max-h-60 overflow-y-auto rounded-lg border bg-popover p-1 shadow-lg">
+                        {pickerSuggestions.slice(0, 8).map((u) => (
                           <button
                             key={u.id}
                             type="button"
