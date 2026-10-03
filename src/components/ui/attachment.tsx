@@ -179,41 +179,12 @@ function AttachmentTrigger({
 }
 
 function AttachmentGroup({ className, ref, ...props }: React.ComponentProps<"div">) {
-  const localRef = React.useRef<HTMLDivElement | null>(null);
-  const setRefs = React.useCallback(
-    (el: HTMLDivElement | null) => {
-      localRef.current = el;
-      if (typeof ref === "function") ref(el);
-      else if (ref) (ref as React.MutableRefObject<HTMLDivElement | null>).current = el;
-    },
-    [ref]
-  );
-
-  // Teruskan scroll vertikal (wheel) jadi geser horizontal saat kursor di area attachment
-  React.useEffect(() => {
-    const el = localRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (e.shiftKey) return;
-      if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-      const max = el.scrollWidth - el.clientWidth;
-      if (max <= 0) return;
-      const atStart = el.scrollLeft <= 0;
-      const atEnd = el.scrollLeft >= max - 1;
-      if ((e.deltaY > 0 && atEnd) || (e.deltaY < 0 && atStart)) return;
-      e.preventDefault();
-      el.scrollLeft += e.deltaY;
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
-
   return (
     <div
-      ref={setRefs}
+      ref={ref}
       data-slot="attachment-group"
       className={cn(
-        "flex min-w-0 scroll-fade-x snap-x snap-mandatory scroll-px-1 scrollbar-none gap-3 overflow-x-auto overscroll-x-contain py-1 *:data-[slot=attachment]:flex-none *:data-[slot=attachment]:snap-start",
+        "flex min-w-0 scroll-fade-x snap-x snap-proximity scroll-px-1 scrollbar-none gap-3 overflow-x-auto overscroll-x-contain py-1 *:data-[slot=attachment]:flex-none *:data-[slot=attachment]:snap-start",
         className
       )}
       {...props}
