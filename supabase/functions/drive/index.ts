@@ -176,12 +176,20 @@ async function handleDelete(
     .maybeSingle();
   if (!att) return errorResponse("Attachment tidak ditemukan / akses ditolak", 403);
 
-  const fileId = (file_id as string) || att.drive_file_id;
-  try {
-    await deleteFile(fileId);
-  } catch (e) {
-    // Lanjut hapus metadata walau storage gagal (mis. sudah hilang).
-    console.error("Storage delete error:", e);
+  const fileId = ((file_id as string) || att.drive_file_id || "").trim();
+  if (fileId) {
+    try {
+      await deleteFile(fileId);
+    } catch (e) {
+      // Jangan hapus metadata kalau objek di storage gagal dihapus: kalau
+      // dibiarkan, objek jadi yatim (ada di bucket, tapi tak ada barisnya di
+      // DB) dan tak akan pernah bisa dibersihkan lagi dari app.
+      console.error("Storage delete error:", e);
+      return errorResponse(
+        `Gagal hapus file dari storage: ${e instanceof Error ? e.message : String(e)}`,
+        502
+      );
+    }
   }
 
   const { error } = await supabase.from("attachments").delete().eq("id", attachment_id);
