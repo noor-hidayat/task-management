@@ -68,9 +68,22 @@ R2_BUCKET=tims-evidence
 
 ## 5. Deploy Edge Functions
 
+Cara cepat (set secret R2 + deploy sekaligus):
+
 ```bash
-supabase functions deploy drive
-supabase functions deploy admin-users
+bash scripts/setup-r2.sh
+```
+
+Script ini membaca `supabase/functions/.env`, memvalidasi 4 kredensial R2,
+lalu menjalankan `supabase secrets set` + `supabase functions deploy drive`.
+Butuh login CLI (`npx supabase login`) atau `SUPABASE_ACCESS_TOKEN` di `.env`.
+
+Manual:
+
+```bash
+npx supabase secrets set --env-file supabase/functions/.env
+npx supabase functions deploy drive
+npx supabase functions deploy admin-users
 ```
 
 - `drive?action=upload|download|delete` — operasi file ke R2
