@@ -1,4 +1,4 @@
-import { Outlet, useNavigate } from "react-router-dom";
+import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { Bell, Search, Clock, User, MessageSquare, AlertTriangle, Moon, Sun, ArrowRightLeft } from "lucide-react";
 import { useTheme } from "@/hooks/useTheme";
 import * as React from "react";
@@ -19,7 +19,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { SidebarLeft } from "@/components/layout/SidebarLeft";
 import { TopbarUser } from "@/components/layout/NavUser";
+import { BottomNav } from "@/components/layout/BottomNav";
 import { GlobalSearch } from "@/components/layout/GlobalSearch";
+import { AppLogo } from "@/components/layout/AppLogo";
 import { notificationsForUser, relativeTime } from "@/lib/api/notifications";
 import { useNotifications } from "@/hooks/useNotifications";
 import { useAuth } from "@/contexts/AuthContext";
@@ -34,9 +36,23 @@ const notificationIcon: Record<string, React.ReactNode> = {
   handover: <ArrowRightLeft className="h-4 w-4" />,
 };
 
+/** Judul singkat halaman untuk app bar mobile. */
+function pageTitle(pathname: string): string {
+  if (pathname === "/") return "Dashboard";
+  if (pathname.startsWith("/my-work") || pathname.startsWith("/my-task")) return "My Work";
+  if (pathname.startsWith("/tasks")) return "Tasks";
+  if (pathname.startsWith("/issues")) return "Issues";
+  if (pathname.startsWith("/reporting")) return "Reporting";
+  if (pathname.startsWith("/teams")) return "Teams";
+  if (pathname.startsWith("/settings")) return "Settings";
+  if (pathname.startsWith("/users")) return "Users";
+  return "TIMS";
+}
+
 export function AppLayout() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const { pathname } = useLocation();
   const [searchOpen, setSearchOpen] = React.useState(false);
   const { toggle, isDark } = useTheme();
   const { data: allNotifications, markRead, markAllRead } = useNotifications();
@@ -52,30 +68,41 @@ export function AppLayout() {
     <SidebarProvider>
       <SidebarLeft />
       <SidebarInset className="h-svh flex flex-col overflow-hidden">
-        <header className="bg-background sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b">
-          <div className="flex flex-1 items-center gap-2 px-3">
+        <header className="bg-background/95 pt-safe sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b backdrop-blur-md">
+          {/* ── Mobile: logo + judul halaman ── */}
+          <div className="flex flex-1 items-center gap-2 px-3 md:hidden">
+            <AppLogo iconClassName="h-4 w-4" className="[&>div:first-child]:h-7 [&>div:first-child]:w-7 [&>div:last-child]:hidden" />
+            <span className="text-sm font-semibold">{pageTitle(pathname)}</span>
+          </div>
+
+          {/* ── Desktop: tombol search lebar ── */}
+          <div className="hidden flex-1 items-center gap-2 px-3 md:flex">
             <button
               onClick={() => setSearchOpen(true)}
-              className="hidden sm:flex items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-sm text-muted-foreground hover:bg-muted/50 transition-colors w-56 lg:w-72"
+              className="flex w-56 items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 lg:w-72"
             >
               <Search className="h-4 w-4 shrink-0" />
               <span className="flex-1 text-left">Search...</span>
-              <kbd className="hidden lg:inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[10px] font-mono">⌘K</kbd>
+              <kbd className="hidden items-center gap-1 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] lg:inline-flex">⌘K</kbd>
             </button>
+          </div>
+
+          <div className="flex items-center gap-1 px-3 md:gap-2">
+            {/* Mobile: search icon */}
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full sm:hidden"
+              className="h-10 w-10 rounded-full md:hidden"
               onClick={() => setSearchOpen(true)}
+              aria-label="Cari"
             >
               <Search className="h-[18px] w-[18px]" />
             </Button>
-          </div>
-          <div className="flex items-center gap-2 px-3">
+            {/* Tema: hanya desktop (di mobile ada di sheet Menu) */}
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 rounded-full"
+              className="hidden h-9 w-9 rounded-full md:inline-flex"
               onClick={toggle}
               aria-label={isDark ? "Ganti ke terang" : "Ganti ke gelap"}
               title={isDark ? "Light mode" : "Dark mode"}
@@ -182,10 +209,13 @@ export function AppLayout() {
           </div>
           <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
         </header>
-        <div className={cn("flex flex-1 min-h-0 flex-col p-4 overflow-y-auto")}>
+        <div className={cn("app-content-pad flex min-h-0 flex-1 flex-col overflow-y-auto")}>
           <Outlet />
         </div>
       </SidebarInset>
+
+      {/* Bottom tab bar — hanya di layar < md */}
+      <BottomNav />
     </SidebarProvider>
   );
 }

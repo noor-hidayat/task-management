@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { DataTable, DataTableColumnHeader } from "@/components/data-table";
+import { TaskListView } from "@/components/task-list-view";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
 import { avatarColor, initials, issueDisplayStatus } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
@@ -75,6 +76,23 @@ export function Issues() {
       cancelled: list.filter((i) => i.cancelled).length,
     }),
     [list]
+  );
+
+  // ── Item untuk daftar mobile (list-first) ──────────────────────────
+  const mobileItems = useMemo(
+    () =>
+      filtered.map((i) => ({
+        id: i.id,
+        number: i.number,
+        title: i.title,
+        link: `/issues/${i.number}`,
+        statusBadge: <IssueStatusBadge status={issueDisplayStatus(i)} />,
+        priorityBadge: <PriorityBadge priority={i.priority} />,
+        assignee: i.assignedTo || undefined,
+        meta: i.issueType ? i.issueType : undefined,
+        overdue: false,
+      })),
+    [filtered]
   );
 
   const handleCreate = async (v: IssueFormValues) => {
@@ -327,7 +345,7 @@ export function Issues() {
               className="pl-9"
             />
           </div>
-          <Button onClick={() => setOpen(true)} className="shrink-0">
+          <Button onClick={() => setOpen(true)} className="hidden shrink-0 md:inline-flex">
             <Plus className="h-4 w-4" /> New Issue
           </Button>
         </div>
@@ -346,7 +364,7 @@ export function Issues() {
   return (
     <div className="space-y-6">
       {/* ── KPI cards ──────────────────────────────────────────────── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {issueStatConfig.map((s) => {
           const Icon = s.icon;
           return (
@@ -355,8 +373,8 @@ export function Issues() {
                 <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${s.color}`}>
                   <Icon className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-muted-foreground">{s.label}</p>
                   <p className="text-xl font-bold tabular-nums">{stats[s.key]}</p>
                 </div>
               </CardContent>
@@ -365,18 +383,59 @@ export function Issues() {
         })}
       </div>
 
-      {/* ── Menu name (left) · search + new issue (right) ───────────── */}
+      {/* ── Daftar issue: kartu di mobile, tabel di desktop ─────────── */}
       {isLoading ? (
         <PageSkeleton variant="table" rows={8} columns={5} />
       ) : (
-        <DataTable<Issue, unknown>
-          columns={columns}
-          data={filtered}
-          pageSize={10}
-          toolbar={toolbar}
-          footer={footer}
-        />
+        <>
+          <div className="space-y-3 pb-16 md:hidden">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold tracking-tight">Issues</h2>
+              <span className="text-xs text-muted-foreground">
+                {filtered.length} item
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <AdvancedFilterBuilder
+                filter={filterState}
+                onFilterChange={setFilterState}
+                fields={filterFields}
+                namespace="issues"
+              />
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Cari ID / judul…"
+                  value={q}
+                  onChange={(e) => setQ(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <TaskListView items={mobileItems} />
+          </div>
+
+          <div className="hidden md:block">
+            <DataTable<Issue, unknown>
+              columns={columns}
+              data={filtered}
+              pageSize={10}
+              toolbar={toolbar}
+              footer={footer}
+            />
+          </div>
+        </>
       )}
+
+      {/* FAB New Issue — mobile saja */}
+      <Button
+        onClick={() => setOpen(true)}
+        size="icon"
+        aria-label="New Issue"
+        className="fixed bottom-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] right-4 z-30 h-14 w-14 rounded-full shadow-lg md:hidden"
+      >
+        <Plus className="h-6 w-6" />
+      </Button>
 
       <IssueFormDialog
         open={open}

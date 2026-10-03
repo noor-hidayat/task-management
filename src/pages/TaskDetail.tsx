@@ -22,6 +22,7 @@ import {
   RotateCcw,
   Search,
   SendHorizontal,
+  SlidersHorizontal,
   Trash2,
   Users,
   X,
@@ -52,6 +53,11 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 import { Button } from "@/components/ui/button";
+import {
+  BottomSheet,
+  BottomSheetContent,
+  BottomSheetTitle,
+} from "@/components/ui/bottom-sheet";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
   Dialog,
@@ -198,6 +204,7 @@ export function TaskDetail() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const navigate = useNavigate();
   
 
@@ -666,6 +673,118 @@ export function TaskDetail() {
     );
   }
 
+  // Panel Details dipakai dua kali: aside di desktop, bottom sheet di mobile.
+  const detailsFields = (
+    <div className="space-y-4">
+      <DetailField
+        icon={<Users />}
+        label="Assigned To"
+        action={<AddButton label="Add assignees" onClick={openAssigneeDialog} />}
+      >
+        {assignees.length > 0 ? (
+          <span className="flex items-center -space-x-2">
+            {assignees.map((name) => (
+              <Avatar
+                key={name}
+                title={name}
+                className="h-6 w-6 cursor-default border-2 border-background"
+              >
+                <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
+                  {initials(name)}
+                </AvatarFallback>
+              </Avatar>
+            ))}
+          </span>
+        ) : (
+          <span className="text-sm text-muted-foreground">—</span>
+        )}
+      </DetailField>
+      <DetailField icon={<Flag />} label="Priority">
+        <PriorityBadge priority={priority} />
+      </DetailField>
+      <DetailField icon={<Factory />} label="Plant">
+        <span className="text-sm">{base?.plant || "—"}</span>
+      </DetailField>
+      <DetailField icon={<MapPin />} label="Location">
+        <span className="text-sm">{base?.location || "—"}</span>
+      </DetailField>
+      <DetailField icon={<CalendarDays />} label="Due Date">
+        <span className="text-sm">{dueDate || "—"}</span>
+      </DetailField>
+      <DetailField
+        icon={<Paperclip />}
+        label="Attachment"
+        action={
+          <AddButton label="Add attachment" onClick={() => setUploadDialogOpen(true)} />
+        }
+      >
+        <div className="space-y-2">
+          {attachments.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No Attachment.</p>
+          ) : (
+            <AttachmentGroup>
+              {attachments.map((a) =>
+                a.preview ? (
+                  <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
+                    <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
+                    <AttachmentMedia variant="image">
+                      <img
+                        src={a.preview}
+                        alt={a.name}
+                        className="h-full w-full object-cover"
+                      />
+                    </AttachmentMedia>
+                    <AttachmentContent>
+                      <AttachmentTitle>{a.name}</AttachmentTitle>
+                      <AttachmentDescription>{a.meta}</AttachmentDescription>
+                    </AttachmentContent>
+                    <AttachmentActions>
+                      <AttachmentAction
+                        aria-label={`Remove ${a.name}`}
+                        onClick={() => removeAttachment(a.id)}
+                      >
+                        <X />
+                      </AttachmentAction>
+                    </AttachmentActions>
+                  </Attachment>
+                ) : (
+                  <Attachment key={a.id} size="sm" className="w-full cursor-pointer" title="Preview">
+                    <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
+                    <AttachmentMedia>
+                      {a.kind === "image" ? <ImageIcon /> : <FileText />}
+                    </AttachmentMedia>
+                    <AttachmentContent>
+                      <AttachmentTitle>{a.name}</AttachmentTitle>
+                      <AttachmentDescription>{a.meta}</AttachmentDescription>
+                    </AttachmentContent>
+                    <AttachmentActions>
+                      {a.url && (
+                        <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
+                          <Download />
+                        </AttachmentAction>
+                      )}
+                      <AttachmentAction
+                        aria-label={`Remove ${a.name}`}
+                        onClick={() => removeAttachment(a.id)}
+                      >
+                        <X />
+                      </AttachmentAction>
+                    </AttachmentActions>
+                  </Attachment>
+                )
+              )}
+            </AttachmentGroup>
+          )}
+          {uploadError && (
+            <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+              Upload gagal: {uploadError}
+            </p>
+          )}
+        </div>
+      </DetailField>
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-6 lg:h-[calc(100svh-5.5rem)]">
       {/* Breadcrumb */}
@@ -694,14 +813,23 @@ export function TaskDetail() {
       <div className="flex min-h-0 flex-1 flex-col gap-6 lg:flex-row lg:gap-0">
         <main className="min-w-0 flex-1 space-y-6 lg:min-h-0 lg:overflow-y-auto lg:pr-6">
           <section className="space-y-4">
-            <div className="flex flex-row items-start justify-between gap-3">
-              <div className="flex min-w-0 items-center gap-2">
-                <h3 className="truncate text-lg font-bold leading-none tracking-tight">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-2">
+                <h3 className="min-w-0 flex-1 text-lg font-bold leading-snug tracking-tight sm:truncate sm:leading-none">
                   {title || "Untitled task"}
                 </h3>
-                <StatusBadge status={cancelled ? "cancelled" : status} className="shrink-0" />
+                <StatusBadge status={cancelled ? "cancelled" : status} className="mt-0.5 shrink-0 sm:mt-0" />
               </div>
               <div className="flex shrink-0 items-center gap-2">
+                {/* Mobile: buka panel Details sebagai bottom sheet */}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="md:hidden"
+                  onClick={() => setDetailsOpen(true)}
+                >
+                  <SlidersHorizontal className="h-4 w-4" /> Details
+                </Button>
                 {(currentUser?.role === "admin" ||
                   (currentUser?.name ? assignees.includes(currentUser.name) : false)) && (
                 <DropdownMenu>
@@ -953,120 +1081,24 @@ export function TaskDetail() {
             </section>
           </main>
 
-        {/* Details panel kanan — Priority | Plant | Location | Due Date | Assigned To */}
-        <aside className="min-w-0 lg:w-[320px] lg:shrink-0 lg:border-l lg:pl-6">
-          <div className="space-y-4 lg:sticky lg:top-0">
-            <div className="space-y-4">
-              <DetailField
-                icon={<Users />}
-                label="Assigned To"
-                action={<AddButton label="Add assignees" onClick={openAssigneeDialog} />}
-              >
-                {assignees.length > 0 ? (
-                  <span className="flex items-center -space-x-2">
-                    {assignees.map((name) => (
-                      <Avatar
-                        key={name}
-                        title={name}
-                        className="h-6 w-6 cursor-default border-2 border-background"
-                      >
-                        <AvatarFallback className={`text-[10px] ${avatarColor(name)}`}>
-                          {initials(name)}
-                        </AvatarFallback>
-                      </Avatar>
-                    ))}
-                  </span>
-                ) : (
-                  <span className="text-sm text-muted-foreground">—</span>
-                )}
-              </DetailField>
-              <DetailField icon={<Flag />} label="Priority">
-                <PriorityBadge priority={priority} />
-              </DetailField>
-              <DetailField icon={<Factory />} label="Plant">
-                <span className="text-sm">{base?.plant || "—"}</span>
-              </DetailField>
-              <DetailField icon={<MapPin />} label="Location">
-                <span className="text-sm">{base?.location || "—"}</span>
-              </DetailField>
-              <DetailField icon={<CalendarDays />} label="Due Date">
-                <span className="text-sm">{dueDate || "—"}</span>
-              </DetailField>
-              <DetailField
-                icon={<Paperclip />}
-                label="Attachment"
-                action={
-                  <AddButton label="Add attachment" onClick={() => setUploadDialogOpen(true)} />
-                }
-              >
-                <div className="space-y-2">
-                  {attachments.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">No Attachment.</p>
-                  ) : (
-                    <AttachmentGroup>
-                      {attachments.map((a) =>
-                        a.preview ? (
-                          <Attachment key={a.id} orientation="vertical" size="sm" className="cursor-pointer" title="Preview">
-                            <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
-                            <AttachmentMedia variant="image">
-                              <img
-                                src={a.preview}
-                                alt={a.name}
-                                className="h-full w-full object-cover"
-                              />
-                            </AttachmentMedia>
-                            <AttachmentContent>
-                              <AttachmentTitle>{a.name}</AttachmentTitle>
-                              <AttachmentDescription>{a.meta}</AttachmentDescription>
-                            </AttachmentContent>
-                            <AttachmentActions>
-                              <AttachmentAction
-                                aria-label={`Remove ${a.name}`}
-                                onClick={() => removeAttachment(a.id)}
-                              >
-                                <X />
-                              </AttachmentAction>
-                            </AttachmentActions>
-                          </Attachment>
-                        ) : (
-                          <Attachment key={a.id} size="sm" className="w-full cursor-pointer" title="Preview">
-                            <AttachmentTrigger aria-label={`Preview ${a.name}`} onClick={() => setPreviewItem(a)} />
-                            <AttachmentMedia>
-                              {a.kind === "image" ? <ImageIcon /> : <FileText />}
-                            </AttachmentMedia>
-                            <AttachmentContent>
-                              <AttachmentTitle>{a.name}</AttachmentTitle>
-                              <AttachmentDescription>{a.meta}</AttachmentDescription>
-                            </AttachmentContent>
-                            <AttachmentActions>
-                              {a.url && (
-                                <AttachmentAction aria-label={`Download ${a.name}`} onClick={() => downloadItem(a)}>
-                                  <Download />
-                                </AttachmentAction>
-                              )}
-                              <AttachmentAction
-                                aria-label={`Remove ${a.name}`}
-                                onClick={() => removeAttachment(a.id)}
-                              >
-                                <X />
-                              </AttachmentAction>
-                            </AttachmentActions>
-                          </Attachment>
-                        )
-                      )}
-                    </AttachmentGroup>
-                  )}
-                  {uploadError && (
-                    <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
-                      Upload gagal: {uploadError}
-                    </p>
-                  )}
-                </div>
-              </DetailField>
-            </div>
-          </div>
+        {/* Details panel kanan — desktop saja */}
+        <aside className="hidden min-w-0 lg:block lg:w-[320px] lg:shrink-0 lg:border-l lg:pl-6">
+          <div className="space-y-4 lg:sticky lg:top-0">{detailsFields}</div>
         </aside>
       </div>
+
+      {/* Details — bottom sheet di mobile */}
+      <BottomSheet open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <BottomSheetContent aria-describedby={undefined}>
+          <div className="flex shrink-0 items-center justify-between px-5 pb-2">
+            <BottomSheetTitle>Details</BottomSheetTitle>
+            <Button variant="ghost" size="icon" onClick={() => setDetailsOpen(false)} aria-label="Tutup">
+              <X className="h-5 w-5" />
+            </Button>
+          </div>
+          <div className="flex-1 overflow-y-auto px-5 pb-6">{detailsFields}</div>
+        </BottomSheetContent>
+      </BottomSheet>
 
       {/* Edit — popup sama persis kayak Create Task */}
       <TaskFormDialog

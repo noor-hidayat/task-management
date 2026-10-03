@@ -11,9 +11,10 @@ import {
   DataTableColumnHeader,
 } from "@/components/data-table";
 import { IssueStatusBadge, PriorityBadge, StatusBadge } from "@/components/status-badge";
+import { TaskListView } from "@/components/task-list-view";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { useAuth } from "@/contexts/AuthContext";
-import { avatarColor, initials } from "@/lib/format";
+import { avatarColor, initials, isOverdue } from "@/lib/format";
 import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
 import type { Issue, IssueStatus, Priority, WorkItem, WorkStatus } from "@/types";
 
@@ -227,6 +228,26 @@ export function MyWork() {
   );
   const latest = filtered.slice(0, 5);
 
+  // ── Item untuk daftar mobile (tab List) ────────────────────────────
+  const mobileItems = React.useMemo(
+    () =>
+      filtered.map((r) => ({
+        id: `${r.kind}-${r.id}`,
+        number: r.number,
+        title: r.title,
+        link: r.link,
+        statusBadge: r.badge,
+        kindLabel: r.kind === "task" ? "Task" : "Issue",
+        assignee: r.assignee || undefined,
+        meta: r.created ? `Dibuat ${r.created}` : undefined,
+        overdue:
+          r.kind === "task" &&
+          r.column !== "completed" &&
+          isOverdue(r.dueDate),
+      })),
+    [filtered]
+  );
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
@@ -253,12 +274,13 @@ export function MyWork() {
         </TabsList>
 
         <TabsContent value="kanban">
-          <div className="grid gap-3 py-4 md:grid-cols-2 xl:grid-cols-4">
+          {/* Mobile: kolom jadi baris scroll-snap horizontal; desktop tetap grid */}
+          <div className="scrollbar-hide -mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 py-4 md:mx-0 md:grid md:grid-cols-2 md:overflow-visible md:px-0 xl:grid-cols-4">
             {COLUMNS.map((col) => {
               const items = latest.filter((r) => r.column === col.key);
               const totalInColumn = filtered.filter((r) => r.column === col.key).length;
               return (
-                <div key={col.key} className="bg-muted/40 flex min-h-48 flex-col rounded-xl border">
+                <div key={col.key} className="bg-muted/40 flex min-h-48 w-[85%] shrink-0 snap-start flex-col rounded-xl border md:w-auto md:shrink">
                   <div className="flex items-center justify-between gap-2 p-3">
                     <div>
                       <p className="text-sm font-semibold">{col.title}</p>
@@ -313,17 +335,23 @@ export function MyWork() {
         </TabsContent>
 
         <TabsContent value="list">
-          <DataTable<WorkRow, unknown>
-            columns={listColumns}
-            data={filtered}
-            pageSize={10}
-            footer={
-              <>
-                <span>Showing {filtered.length} rows</span>
-                <span>{assignee}</span>
-              </>
-            }
-          />
+          {/* Mobile: list-first; desktop: tabel */}
+          <div className="pt-3 md:hidden">
+            <TaskListView items={mobileItems} />
+          </div>
+          <div className="hidden md:block">
+            <DataTable<WorkRow, unknown>
+              columns={listColumns}
+              data={filtered}
+              pageSize={10}
+              footer={
+                <>
+                  <span>Showing {filtered.length} rows</span>
+                  <span>{assignee}</span>
+                </>
+              }
+            />
+          </div>
         </TabsContent>
       </Tabs>
       )}

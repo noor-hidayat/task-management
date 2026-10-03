@@ -70,15 +70,18 @@ function CardsSkeleton({ rows = 6 }: { rows?: number }) {
 
 function ListSkeleton({ rows = 5 }: { rows?: number }) {
   return (
-    <div className="grid gap-4" aria-label="Memuat data" role="status">
+    <div className="grid gap-2.5" aria-label="Memuat data" role="status">
       {Array.from({ length: rows }).map((_, i) => (
-        <div key={i} className="flex gap-4 rounded-xl border p-5">
-          <Skeleton className="h-11 w-11 shrink-0 rounded-xl" />
+        <div key={i} className="flex min-h-[4.5rem] items-center gap-3 rounded-xl border bg-card p-3.5">
           <div className="flex-1 space-y-2">
-            <Skeleton className="h-4 w-1/3" />
-            <Skeleton className="h-3 w-full" />
-            <Skeleton className="h-3 w-3/4" />
+            <div className="flex items-center gap-2">
+              <Skeleton className="h-3 w-16" />
+              <Skeleton className="h-4 w-20 rounded-full" />
+            </div>
+            <Skeleton className="h-4 w-3/4" />
+            <Skeleton className="h-3 w-28" />
           </div>
+          <Skeleton className="h-4 w-4 shrink-0 rounded" />
         </div>
       ))}
     </div>

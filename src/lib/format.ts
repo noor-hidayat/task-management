@@ -75,6 +75,33 @@ export function initials(name: string) {
     .toUpperCase();
 }
 
+const MONTHS_SHORT_LC: Record<string, number> = {
+  jan: 0, feb: 1, mar: 2, apr: 3, may: 4, jun: 5,
+  jul: 6, aug: 7, sep: 8, oct: 9, nov: 10, dec: 11,
+};
+
+/**
+ * Apakah tanggal "26 Sep 2026" (atau ISO) sudah lewat dari hari ini?
+ * Dipakai untuk menandai tugas overdue di daftar mobile.
+ */
+export function isOverdue(value: string | null | undefined): boolean {
+  if (!value) return false;
+  let d: Date | null = null;
+  const m = value.match(/^(\d{1,2})\s+([A-Za-z]{3})\s+(\d{4})/);
+  if (m) {
+    const month = MONTHS_SHORT_LC[m[2].toLowerCase()];
+    if (month !== undefined) d = new Date(Number(m[3]), month, Number(m[1]));
+  } else {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) d = parsed;
+  }
+  if (!d) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  d.setHours(0, 0, 0, 0);
+  return d.getTime() < today.getTime();
+}
+
 export function avatarColor(name: string): string {
   const colors = [
     "bg-blue-500/15 text-blue-700 dark:text-blue-400",

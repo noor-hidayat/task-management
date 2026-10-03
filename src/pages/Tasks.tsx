@@ -9,7 +9,8 @@ import { Input } from "@/components/ui/input";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { StatusBadge, PriorityBadge } from "@/components/status-badge";
-import { initials, avatarColor, workDisplayStatus } from "@/lib/format";
+import { TaskListView } from "@/components/task-list-view";
+import { initials, avatarColor, workDisplayStatus, isOverdue } from "@/lib/format";
 import {
   DataTable,
   DataTableColumnHeader,
@@ -119,6 +120,26 @@ export function Tasks() {
     setFilterState({ groups: [{ id: "root", operator: "AND", conditions: [] }] });
 
   const total = filtered.length;
+
+  // ── Item untuk daftar mobile (list-first) ──────────────────────────
+  const mobileItems = useMemo(
+    () =>
+      filtered.map((w) => ({
+        id: w.id,
+        number: w.number,
+        title: w.title,
+        link: `/tasks/${w.number}`,
+        statusBadge: <StatusBadge status={workDisplayStatus(w)} />,
+        priorityBadge: <PriorityBadge priority={w.priority} />,
+        assignee: w.assignedTo || undefined,
+        meta: w.dueDate ? `Due ${w.dueDate}` : undefined,
+        overdue:
+          isOverdue(w.dueDate) &&
+          !w.cancelled &&
+          workDisplayStatus(w) !== "completed",
+      })),
+    [filtered]
+  );
 
   // ── KPI stats ──────────────────────────────────────────────────────
   const stats = useMemo(
@@ -303,7 +324,7 @@ export function Tasks() {
               className="pl-9"
             />
           </div>
-          <Button onClick={() => setOpen(true)} className="shrink-0">
+          <Button onClick={() => setOpen(true)} className="hidden shrink-0 md:inline-flex">
             <Plus className="h-4 w-4" /> New Task
           </Button>
         </div>
@@ -322,7 +343,7 @@ export function Tasks() {
   return (
     <div className="space-y-6">
       {/* ── KPI cards ──────────────────────────────────────────────── */}
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         {taskStatConfig.map((s) => {
           const Icon = s.icon;
           return (
@@ -331,8 +352,8 @@ export function Tasks() {
                 <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${s.color}`}>
                   <Icon className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-xs text-muted-foreground">{s.label}</p>
+                <div className="min-w-0">
+                  <p className="truncate text-xs text-muted-foreground">{s.label}</p>
                   <p className="text-xl font-bold tabular-nums">{stats[s.key]}</p>
                 </div>
               </CardContent>
@@ -341,18 +362,61 @@ export function Tasks() {
         })}
       </div>
 
-      {/* ── Menu name (left) · search + new task (right) ────────────── */}
+      {/* ── Daftar tugas: kartu di mobile, tabel di desktop ─────────── */}
       {isLoading ? (
         <PageSkeleton variant="table" rows={8} columns={5} />
       ) : (
-        <DataTable<WorkItem, unknown>
-          columns={columns}
-          data={filtered}
-          pageSize={10}
-          toolbar={toolbar}
-          footer={footer}
-        />
+        <>
+          {/* Mobile: toolbar (filter + search) + list-first */}
+          <div className="space-y-3 pb-16 md:hidden">
+            <div className="flex items-center justify-between">
+              <h2 className="text-base font-semibold tracking-tight">Tasks</h2>
+              <span className="text-xs text-muted-foreground">
+                {filtered.length} item
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <AdvancedFilterBuilder
+                filter={filterState}
+                onFilterChange={setFilterState}
+                fields={filterFields}
+                namespace="tasks"
+              />
+              <div className="relative flex-1">
+                <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Cari ID / judul…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                />
+              </div>
+            </div>
+            <TaskListView items={mobileItems} />
+          </div>
+
+          {/* Desktop: tabel penuh */}
+          <div className="hidden md:block">
+            <DataTable<WorkItem, unknown>
+              columns={columns}
+              data={filtered}
+              pageSize={10}
+              toolbar={toolbar}
+              footer={footer}
+            />
+          </div>
+        </>
       )}
+
+      {/* FAB New Task — mobile saja */}
+      <Button
+        onClick={() => setOpen(true)}
+        size="icon"
+        aria-label="New Task"
+        className="fixed bottom-[calc(var(--bottom-nav-h)+env(safe-area-inset-bottom,0px)+1rem)] right-4 z-30 h-14 w-14 rounded-full shadow-lg md:hidden"
+      >
+        <Plus className="h-6 w-6" />
+      </Button>
 
       <TaskFormDialog
         open={open}

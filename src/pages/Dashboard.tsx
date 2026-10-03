@@ -374,7 +374,7 @@ export function Dashboard() {
       </div>
 
       {/* ── KPI ── */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <KpiCard label="My Work" value={kpis.myWork} icon={Circle} />
         <KpiCard label="In Progress" value={kpis.inProgress} icon={Loader2} />
         <KpiCard label="On Hold" value={kpis.onHold} icon={Clock} />

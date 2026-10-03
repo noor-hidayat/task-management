@@ -58,7 +58,7 @@ export function Schedule() {
         <PageSkeleton variant="schedule" />
       ) : (
         <>
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
         {shifts.map((s) => (
           <Card key={s.id}>
             <CardHeader className="pb-2">

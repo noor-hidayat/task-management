@@ -282,7 +282,7 @@ export function Report() {
             <h1 className="text-3xl font-bold tracking-tight">Reports Dashboard</h1>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
           {Array.from({ length: 4 }).map((_, i) => (
             <div key={i} className="h-32 animate-pulse rounded-lg bg-muted/40" />
           ))}

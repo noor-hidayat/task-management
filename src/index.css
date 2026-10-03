@@ -211,3 +211,134 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ============================================================
+   MOBILE-FIRST LAYER (Opsi C: bottom nav + list-first)
+   Token & breakpoint mengikuti mock/mobile-mock.html
+   ============================================================ */
+
+:root {
+  /* Tinggi bottom tab bar tanpa safe-area (Android ~60px, iPhone +34px) */
+  --bottom-nav-h: 3.75rem;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  /* Cegah rubber-band yang bikin tab bar "lepas" di iOS */
+  overscroll-behavior-y: none;
+}
+
+/* Hilangkan highlight biru saat tap di Android/iOS */
+* {
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Tinggi total area bawah (tab bar + safe area iPhone home indicator) */
+.pb-nav {
+  padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+}
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}
+.pl-safe {
+  padding-left: env(safe-area-inset-left, 0px);
+}
+.pr-safe {
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
+/* Elemen fixed yang harus "duduk" di atas bottom tab bar */
+.above-nav {
+  bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 1rem);
+}
+
+/* Padding konten halaman: 12px + safe-area, plus ruang bottom tab bar di mobile.
+   Sengaja satu kelas utuh agar tidak bertabrakan dengan utility padding Tailwind. */
+.app-content-pad {
+  padding-top: 1rem;
+  padding-bottom: calc(var(--bottom-nav-h) + env(safe-area-inset-bottom, 0px) + 1rem);
+  padding-left: calc(0.75rem + env(safe-area-inset-left, 0px));
+  padding-right: calc(0.75rem + env(safe-area-inset-right, 0px));
+}
+@media (min-width: 768px) {
+  .app-content-pad {
+    padding: 1rem;
+  }
+}
+
+/* Baris scroll horizontal dengan snap (kanban mobile) */
+.snap-row {
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.snap-row::-webkit-scrollbar {
+  display: none;
+}
+.snap-item {
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+
+/* Touch target minimal 44px untuk semua icon-button di perangkat sentuh */
+@media (pointer: coarse) {
+  [data-slot="button"][data-size="icon"] {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+  [data-slot="button"][data-size="icon-sm"] {
+    width: 2.25rem;
+    height: 2.25rem;
+  }
+}
+
+/* ---- Bottom sheet (mobile) ---- */
+@keyframes sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes sheet-out {
+  from {
+    transform: translateY(0);
+  }
+  to {
+    transform: translateY(100%);
+  }
+}
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes overlay-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.sheet-panel[data-state="open"] {
+  animation: sheet-in 0.28s cubic-bezier(0.32, 0.72, 0, 1);
+}
+.sheet-panel[data-state="closed"] {
+  animation: sheet-out 0.22s ease-in;
+}
+.sheet-overlay[data-state="open"] {
+  animation: overlay-in 0.2s ease-out;
+}
+.sheet-overlay[data-state="closed"] {
+  animation: overlay-out 0.2s ease-in;
+}

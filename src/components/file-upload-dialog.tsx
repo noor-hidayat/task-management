@@ -25,6 +25,7 @@ export function FileUploadDialog({
   multiple = true,
 }: FileUploadDialogProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const captureInputRef = useRef<HTMLInputElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -111,6 +112,12 @@ export function FileUploadDialog({
 
   const openCamera = async () => {
     setCameraError(null);
+    // getUserMedia butuh HTTPS + izin eksplisit, dan sering diblokir di webview HP.
+    // Kalau tidak tersedia, jatuh ke input capture native (buka app kamera bawaan).
+    if (!navigator.mediaDevices?.getUserMedia) {
+      captureInputRef.current?.click();
+      return;
+    }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
@@ -123,8 +130,8 @@ export function FileUploadDialog({
       setStatus("camera");
     } catch (err) {
       console.error("Camera access denied:", err);
-      setCameraError("Cannot access camera. Please use File option instead.");
-      setTimeout(() => setCameraError(null), 4000);
+      // Fallback: kamera bawaan OS lewat input file capture.
+      captureInputRef.current?.click();
     }
   };
 
@@ -291,6 +298,19 @@ export function FileUploadDialog({
                 e.target.value = "";
               }}
               accept="*/*"
+            />
+
+            {/* Fallback kamera: buka aplikasi kamera bawaan HP (butuh HTTPS di iOS). */}
+            <input
+              ref={captureInputRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => {
+                void handleFiles(e.target.files);
+                e.target.value = "";
+              }}
             />
           </>
         )}
