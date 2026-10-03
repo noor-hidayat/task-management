@@ -305,8 +305,8 @@ export function MyWork() {
                         <div className="flex items-start justify-between gap-2">
                           <p className="min-w-0 flex-1 text-sm font-medium">{r.title}</p>
                           {r.assignees.length > 0 && (
-                            <span className="shrink-0">
-                              <AssigneeGroup names={r.assignees} />
+                            <span className="shrink-0 [&>div]:gap-0">
+                              <AssigneeGroup names={r.assignees} showNames={false} />
                             </span>
                           )}
                         </div>

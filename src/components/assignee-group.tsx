@@ -5,9 +5,11 @@ import { avatarColor, initials } from "@/lib/format";
 export function AssigneeGroup({
   names,
   max = 2,
+  showNames = true,
 }: {
   names: string[];
   max?: number;
+  showNames?: boolean;
 }) {
   const list = names.filter(Boolean);
   if (list.length === 0) return <span className="text-muted-foreground">—</span>;
@@ -30,7 +32,9 @@ export function AssigneeGroup({
           </span>
         )}
       </span>
-      <span className="max-w-[120px] truncate text-sm">{displayName}</span>
+      {showNames && (
+        <span className="max-w-[120px] truncate text-sm">{displayName}</span>
+      )}
     </div>
   );
 }
