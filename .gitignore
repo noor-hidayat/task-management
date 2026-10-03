@@ -32,3 +32,6 @@ supabase/functions/.env
 *.njsproj
 *.sln
 *.sw?
+
+# Artefak mock/screenshot (lokal)
+mock/
