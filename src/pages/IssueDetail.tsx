@@ -74,6 +74,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { IssueFormDialog, type IssueFormValues } from "@/components/issue-form-dialog";
 import { sanitizeRichHtml, stripChecklist } from "@/components/rich-text-editor";
 import { RichTextEditor } from "@/components/rich-text-editor";
+import { RelatedNotes } from "@/components/related-notes";
 import { DatePicker } from "@/components/ui/date-picker";
 import { TimePicker } from "@/components/ui/time-picker";
 
@@ -723,6 +724,12 @@ export function IssueDetail() {
               className="rich-content resize-none text-sm bg-muted/30 rounded-lg border border-input px-3 py-2 min-h-[14rem] font-sans whitespace-pre-wrap"
               dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stripChecklist(issue?.description || "")) }}
             />
+          </section>
+
+          {/* Related Notes — sisi baca dari relasi Note ↔ Issue (dikelola dari halaman Notes) */}
+          <section className="space-y-3">
+            <SectionTitle icon={<FileText />} title="Related Notes" />
+            <RelatedNotes relatedType="issue" relatedId={issue.id} />
           </section>
           <div className="border-t" />
 

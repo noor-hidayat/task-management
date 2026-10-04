@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
+import { AssigneeGroup } from "@/components/assignee-group";
 import { useIssues, useWorks, useUsers } from "@/hooks/useSupabaseLists";
 import {
   PieChart,
@@ -114,7 +115,7 @@ export function Report({ reportType = "issue" }: { reportType?: "issue" | "task"
   const { data: users } = useUsers();
   const isLoading = worksLoading || issuesLoading;
 
-  const [dateRange, setDateRange] = React.useState<DateRangeKey>("monthly");
+  const [dateRange, setDateRange] = React.useState<DateRangeKey>("weekly");
   const [activeTab, setActiveTab] = React.useState("overview");
   const [customStart, setCustomStart] = React.useState("");
   const [customEnd, setCustomEnd] = React.useState("");
@@ -654,7 +655,17 @@ export function Report({ reportType = "issue" }: { reportType?: "issue" | "task"
                             </Badge>
                           </td>
                           <td className="py-3 px-4 capitalize">{issue.priority}</td>
-                          <td className="py-3 px-4">{issue.assignedTo}</td>
+                          <td className="py-3 px-4">
+                            <AssigneeGroup
+                              names={
+                                Array.isArray(issue.assignees) && issue.assignees.length > 0
+                                  ? issue.assignees
+                                  : issue.assignedTo
+                                    ? [issue.assignedTo]
+                                    : []
+                              }
+                            />
+                          </td>
                           <td className="py-3 px-4">{issue.plant || "—"}</td>
                         </tr>
                       ))

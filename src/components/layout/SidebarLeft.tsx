@@ -5,6 +5,7 @@ import {
   ClipboardList,
   LayoutDashboard,
   ListChecks,
+  NotebookPen,
   Settings,
   ShieldCheck,
   Users,
@@ -41,6 +42,7 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
             { title: "My Work", url: "/my-work", icon: ClipboardList },
             { title: "Issues", url: "/issues", icon: CircleDot },
             { title: "Tasks", url: "/tasks", icon: ListChecks },
+            { title: "Notes", url: "/notes", icon: NotebookPen },
           ]}
         />
       </SidebarHeader>

@@ -306,7 +306,7 @@ export function MyWork() {
                           <p className="min-w-0 flex-1 text-sm font-medium">{r.title}</p>
                           {r.assignees.length > 0 && (
                             <span className="shrink-0">
-                              <AssigneeGroup names={r.assignees} />
+                              <AssigneeGroup names={r.assignees} showName={false} />
                             </span>
                           )}
                         </div>

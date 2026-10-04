@@ -42,6 +42,7 @@ function pageTitle(pathname: string): string {
   if (pathname.startsWith("/my-work") || pathname.startsWith("/my-task")) return "My Work";
   if (pathname.startsWith("/tasks")) return "Tasks";
   if (pathname.startsWith("/issues")) return "Issues";
+  if (pathname.startsWith("/notes")) return "Notes";
   if (pathname.startsWith("/reporting/tasks")) return "Task Report";
   if (pathname.startsWith("/reporting")) return "Issue Report";
   if (pathname.startsWith("/teams")) return "Teams";

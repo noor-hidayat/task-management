@@ -165,6 +165,52 @@ export interface Issue {
   activities: Activity[];
 }
 
+/* ── Notes ─────────────────────────────────────────────────────── */
+
+export type NotePermission = "view" | "edit";
+
+export type NoteRelatedType = "task" | "issue";
+
+export interface NoteShare {
+  id: string;
+  userId: string;
+  userName: string;
+  permission: NotePermission;
+  createdAt: string;
+}
+
+export interface NoteRelation {
+  id: string;
+  relatedType: NoteRelatedType;
+  /** UUID works/issues yang direlasikan. */
+  relatedId: string;
+  relatedNumber?: string;
+  relatedTitle?: string;
+  createdAt: string;
+}
+
+export interface Note {
+  id: string;
+  ownerId: string;
+  ownerName: string;
+  title: string;
+  /** HTML rich-text dari editor. */
+  content: string;
+  /** Tag kategorisasi saja — bukan relasi Task/Issue. */
+  tags: string[];
+  /** True bila note dibagikan ke ≥1 user lain. */
+  shared: boolean;
+  /** True bila current user adalah owner. */
+  isOwner: boolean;
+  shares: NoteShare[];
+  relations: NoteRelation[];
+  createdAt: string;
+  updatedAt: string;
+  /** ISO mentah untuk sorting. */
+  rawUpdatedAt: string;
+  rawCreatedAt: string;
+}
+
 export type NotificationType =
   | "assignment"
   | "mention"

@@ -10,6 +10,7 @@ import {
   LogOut,
   Monitor,
   Moon,
+  NotebookPen,
   Settings,
   ShieldCheck,
   Sun,
@@ -85,6 +86,7 @@ function MenuSheet({
   const close = () => onOpenChange(false);
 
   const links = [
+    { title: "Notes", url: "/notes", icon: NotebookPen },
     { title: "Issue Report", url: "/reporting/issues", icon: BarChart3 },
     { title: "Task Report", url: "/reporting/tasks", icon: BarChart3 },
     { title: "Teams", url: "/teams", icon: Users },
@@ -219,6 +221,7 @@ export function BottomNav() {
   const menuActive =
     pathname.startsWith("/reporting") ||
     pathname.startsWith("/teams") ||
+    pathname.startsWith("/notes") ||
     pathname.startsWith("/settings") ||
     pathname.startsWith("/users");
 

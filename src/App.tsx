@@ -7,6 +7,7 @@ import { Issues } from "@/pages/Issues";
 import { IssueDetail } from "@/pages/IssueDetail";
 import { Tasks } from "@/pages/Tasks";
 import { TaskDetail } from "@/pages/TaskDetail";
+import { Notes } from "@/pages/Notes";
 import { Report } from "@/pages/Report";
 import { Teams } from "@/pages/Teams";
 import { TeamDetail } from "@/pages/TeamDetail";
@@ -52,6 +53,7 @@ function ProtectedRoutes() {
         <Route path="tasks/:number" element={<TaskDetail />} />
         <Route path="issues" element={<Issues />} />
         <Route path="issues/:number" element={<IssueDetail />} />
+        <Route path="notes" element={<Notes />} />
         <Route path="teams" element={<Teams />} />
         <Route path="teams/:id" element={<TeamDetail />} />
         <Route path="settings" element={<Settings />} />

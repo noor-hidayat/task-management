@@ -80,6 +80,7 @@ import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import { TaskFormDialog, dmyToISO, toDMY } from "@/components/task-form-dialog";
 import { RichTextView, sanitizeRichHtml, extractChecklist, type RichCheckItem, checklistToHtml, stripChecklist, injectChecklist } from "@/components/rich-text-editor";
+import { RelatedNotes } from "@/components/related-notes";
 
 import { initials, avatarColor } from "@/lib/format";
 import { useAuth } from "@/contexts/AuthContext";
@@ -892,6 +893,12 @@ export function TaskDetail() {
               className="rich-content resize-none text-sm bg-muted/30 rounded-lg border border-input px-3 py-2 min-h-[14rem] font-sans whitespace-pre-wrap"
               dangerouslySetInnerHTML={{ __html: sanitizeRichHtml(stripChecklist(base?.description || "")) }}
             />
+          </section>
+
+          {/* Related Notes — sisi baca dari relasi Note ↔ Task (dikelola dari halaman Notes) */}
+          <section className="space-y-3">
+            <SectionTitle icon={<FileText />} title="Related Notes" />
+            <RelatedNotes relatedType="task" relatedId={base.id} />
           </section>
 
           {/* Checklist — hanya tampil jika ada checklist di description */}

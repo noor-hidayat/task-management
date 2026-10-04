@@ -159,8 +159,129 @@
   line-height: 1.4;
   margin: 0.5em 0 0.25em;
 }
+.rich-content h3 {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.4;
+  margin: 0.5em 0 0.25em;
+}
 .rich-content p {
   margin: 0.25em 0;
+}
+.rich-content blockquote {
+  border-left: 3px solid var(--border);
+  padding-left: 0.75rem;
+  margin: 0.5em 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+.rich-content pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  padding: 0.5rem 0.75rem;
+  margin: 0.5em 0;
+  overflow-x: auto;
+  font-family: ui-monospace, monospace;
+  font-size: 0.8125rem;
+  white-space: pre-wrap;
+}
+.rich-content code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+}
+.rich-content hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0.75em 0;
+}
+.rich-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  margin: 0.5em 0;
+}
+.rich-content s,
+.rich-content strike {
+  text-decoration: line-through;
+}
+.rich-content table.rt-table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0.5em 0;
+  font-size: 0.8125rem;
+  table-layout: fixed;
+}
+.rich-content table.rt-table td,
+.rich-content table.rt-table th {
+  border: 1px solid var(--border);
+  padding: 0.375rem 0.5rem;
+  min-width: 3rem;
+  vertical-align: top;
+  position: relative;
+  overflow-wrap: break-word;
+}
+.rich-content table.rt-table th {
+  background: var(--muted);
+  font-weight: 600;
+}
+/* Unit tab ala Word: satu Tab = satu blok selebar ~tab stop, hapus sekali hilang semua. */
+.rich-content .rt-tab {
+  display: inline-block;
+  width: 3em;
+}
+
+/* ── Gambar Note: figure.rt-image + caption + resize overlay ── */
+.rich-content figure.rt-image {
+  margin: 0.75em 0;
+  max-width: 100%;
+  display: inline-block;
+  text-align: inherit; /* follow parent text-align (left/center/right) */
+}
+.rich-content figure.rt-image > img {
+  display: inline-block;
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.375rem;
+  vertical-align: bottom;
+}
+.rich-content figure.rt-image > figcaption {
+  display: block;
+  margin-top: 0.375rem;
+  font-size: 0.8125rem;
+  color: var(--muted-foreground);
+  text-align: inherit; /* follow figure's text-align */
+  min-height: 1.25rem; /* reserve space so caption tidak loncat saat ketik */
+  word-break: break-word;
+}
+.rich-content figure.rt-image > figcaption:empty::before {
+  content: "Ketik caption…";
+  color: var(--muted-foreground);
+  opacity: 0.5;
+}
+
+/* Overlay saat gambar dipilih */
+[data-rt-img-overlay] {
+  box-sizing: border-box;
+}
+[data-rt-img-overlay]::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  background: linear-gradient(45deg, transparent 40%, currentColor 40%, currentColor 60%, transparent 60%),
+    linear-gradient(-45deg, transparent 40%, currentColor 40%, currentColor 60%, transparent 60%);
+  background-size: 8px 8px;
+  opacity: 0.2;
+  pointer-events: none;
+}
+
+/* Crop editor overlay (di dialog) */
+.rt-image {
+  position: relative;
+}
+.rt-image > img {
+  user-select: none;
+  -webkit-user-drag: none;
 }
 .rich-content ul:not(.rt-task-list) {
   list-style: disc;
