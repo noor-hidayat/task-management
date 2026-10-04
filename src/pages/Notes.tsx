@@ -331,22 +331,19 @@ export function Notes() {
   const handleCreateSubmit = async (v: NoteFormValues) => {
     if (!currentUser) return;
     const images: PendingNoteImages = v.images ?? emptyPendingNoteImages();
-    const content = await persistNoteImages(v.content, images, {
-      userId: currentUser.id,
-      noteId: "temp",
-    });
     const note = await createNote({
       title: v.title,
-      content,
+      content: v.content,
       tags: v.tags,
       ownerId: currentUser.id,
       ownerName: currentUser.name,
     });
-    // Upload pending images (catat path storage yang valid)
-    await persistNoteImages(note.content, images, {
+    // Upload semua gambar ke path asli noteId, lalu simpan HTML final (R2 key).
+    const content = await persistNoteImages(note.content, images, {
       userId: currentUser.id,
       noteId: note.id,
     });
+    await updateNote(note.id, { content });
     for (const r of v.relations) {
       await addNoteRelation(note.id, r.relatedType, r.relatedId);
     }

@@ -6,23 +6,48 @@ import { supabase, isSupabaseConfigured } from "@/lib/supabase";
  * Arsitektur:
  * - Selama editing, gambar BARU hidup sebagai blob: URL + File di memori
  *   (instant preview, nol orphan bila dialog dibatalkan).
- * - Saat Save, `persistNoteImages()` mengunggah blob ke Supabase Storage privat
- *   (`notes/{user_id}/{note_id}/image-{id}.webp`) dan menulis ulang HTML dengan
- *   `data-storage-path`. Database TIDAK menyimpan binary/base64.
+ * - Saat Save, `persistNoteImages()` mengunggah blob ke Cloudflare R2 (lewat
+ *   Edge Function `drive`, action `upload-note`) dengan key
+ *   `notes/{user_id}/{note_id}/{unique}-{nama}.webp` dan menulis ulang HTML
+ *   dengan `data-storage-path`. Database TIDAK menyimpan binary/base64.
  * - Saat tampil (editor & read-only), `resolveNoteImageUrls()` menukar
- *   `data-storage-path` menjadi signed URL berumur pendek. Bucket privat +
- *   RLS mengikuti permission Note (owner / shared / admin).
+ *   `data-storage-path` menjadi presigned GET URL berumur pendek (dibuat
+ *   server-side lewat action `sign-note`). Bucket R2 privat; otorisasi mengikuti
+ *   permission Note (owner / shared / admin).
+ * - Gambar LAMA yang masih di bucket Supabase (`notes/...`) tetap dibaca
+ *   (fallback) sampai selesai migrasi manual.
  * - Caption auto-numbering `Gambar {H1 section}.{sequence}` dihitung dari DOM
  *   (`renumberNoteImages`), mengikuti H1 dan diperbarui saat hapus/pindah.
  */
 
-export const NOTE_IMAGES_BUCKET = "notes";
-/** Umur signed URL (detik) — pendek agar URL kedaluwarsa tidak bisa disebar bebas. */
+/** Umur presigned URL (detik) — pendek agar URL kedaluwarsa tidak bisa disebar bebas. */
 const SIGNED_URL_TTL = 3600;
 /** Batas dimensi upload agar file tetap ringan (aspect ratio dipertahankan). */
 const MAX_UPLOAD_DIM = 2560;
 /** Batas dimensi untuk mode lokal (tanpa Supabase, dataURL di localStorage). */
 const MAX_LOCAL_DIM = 1280;
+
+/* ── Edge Function `drive` client (R2) ────────────────────────── */
+
+const FUNCTIONS_BASE = () => `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/drive`;
+
+async function authHeaders(json = false): Promise<Record<string, string>> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const anon = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${session?.access_token ?? anon}`,
+    apikey: anon,
+  };
+  if (json) headers["Content-Type"] = "application/json";
+  return headers;
+}
+
+async function r2Error(res: Response, fallback: string): Promise<Error> {
+  const body = await res.json().catch(() => ({ error: res.statusText }));
+  return new Error(body?.error || fallback);
+}
 
 /** File gambar yang masih blob (belum diunggah) + path storage yang dibuang saat save. */
 export type PendingNoteImages = {
@@ -116,12 +141,13 @@ export function extractImagePaths(html: string): string[] {
 }
 
 /**
- * Simpan gambar blob ke Storage dan tulis ulang HTML.
- * - figure dengan file pending (baru/crop/replace) → upload (upsert) → set data-storage-path.
+ * Simpan gambar blob ke Storage (R2 lewat Edge Function) dan tulis ulang HTML.
+ * - figure dengan file pending (baru/crop/replace) → upload → set data-storage-path (R2 key).
  * - figure blob tanpa file (URL mati) → dibuang dari HTML.
  * - figure storage yang tidak berubah → dipertahankan (src dinormalisasi ke path).
  * - img telanjang (hasil paste) → dibungkus figure + diberi id.
  * - mode lokal (tanpa Supabase) → blob diubah jadi dataURL downscale.
+ * - Gambar lama dari Supabase Storage (path notes/...) dibiarkan utuh; URL signed dibuat lewat EF.
  */
 export async function persistNoteImages(
   html: string,
@@ -176,17 +202,23 @@ export async function persistNoteImages(
         continue;
       }
       const { blob, ext } = await blobToWebp(file);
-      const path = storagePath || `${opts.userId}/${opts.noteId}/image-${randImageId("image").replace(/^image_/, "")}.${ext}`;
-      const { error } = await supabase.storage
-        .from(NOTE_IMAGES_BUCKET)
-        .upload(path, blob, {
-          contentType: blob.type || "image/webp",
-          upsert: true,
-        });
-      if (error) throw new Error(`Upload gambar gagal: ${error.message}`);
-      fig.dataset.storagePath = path;
+
+      // Upload ke R2 lewat Edge Function
+      const form = new FormData();
+      form.append("note_id", opts.noteId);
+      form.append("file", new File([blob], `image.${ext}`, { type: blob.type || `image/${ext}` }));
+
+      const res = await fetch(`${FUNCTIONS_BASE()}?action=upload-note`, {
+        method: "POST",
+        headers: await authHeaders(),
+        body: form,
+      });
+      if (!res.ok) throw await r2Error(res, "Upload gambar gagal");
+
+      const data = (await res.json()) as { key: string; name: string; size: number };
+      fig.dataset.storagePath = data.key;
       fig.removeAttribute("data-dirty");
-      img.setAttribute("src", path);
+      img.setAttribute("src", data.key); // simpan R2 key; resolveNoteImageUrls ganti ke presigned URL
       img.setAttribute("alt", captionTextOf(fig) || "Gambar note");
       pending.files.delete(id);
       pending.files.delete(src);
@@ -206,6 +238,7 @@ export async function persistNoteImages(
       continue;
     }
     if (storagePath) {
+      // Pertahankan key R2 / path Supabase lama
       img.setAttribute("src", storagePath);
       img.setAttribute("alt", captionTextOf(fig) || "Gambar note");
       continue;
@@ -222,8 +255,12 @@ export async function finalizeNoteImageDeletions(paths: string[]): Promise<void>
   const uniq = [...new Set((paths ?? []).filter(Boolean))];
   if (uniq.length === 0 || !isSupabaseConfigured) return;
   try {
-    const { error } = await supabase.storage.from(NOTE_IMAGES_BUCKET).remove(uniq);
-    if (error) console.warn("[note-images] gagal hapus file:", error.message);
+    const res = await fetch(`${FUNCTIONS_BASE()}?action=delete-note`, {
+      method: "POST",
+      headers: await authHeaders(true),
+      body: JSON.stringify({ paths: uniq }),
+    });
+    if (!res.ok) console.warn("[note-images] gagal hapus file:", await res.text());
   } catch (e) {
     console.warn("[note-images] gagal hapus file:", e);
   }
@@ -233,24 +270,18 @@ export async function finalizeNoteImageDeletions(paths: string[]): Promise<void>
 export async function deleteNoteImageFolder(userId: string, noteId: string): Promise<void> {
   if (!isSupabaseConfigured) return;
   try {
-    const prefix = `${userId}/${noteId}`;
-    for (;;) {
-      const { data, error } = await supabase.storage
-        .from(NOTE_IMAGES_BUCKET)
-        .list(prefix, { limit: 1000 });
-      if (error) throw new Error(error.message);
-      if (!data || data.length === 0) return;
-      const paths = data.map((f) => `${prefix}/${f.name}`);
-      const { error: delErr } = await supabase.storage.from(NOTE_IMAGES_BUCKET).remove(paths);
-      if (delErr) throw new Error(delErr.message);
-      if (data.length < 1000) return;
-    }
+    const res = await fetch(`${FUNCTIONS_BASE()}?action=delete-note-folder`, {
+      method: "POST",
+      headers: await authHeaders(true),
+      body: JSON.stringify({ note_id: noteId }),
+    });
+    if (!res.ok) console.warn("[note-images] gagal bersihkan folder gambar:", await res.text());
   } catch (e) {
     console.warn("[note-images] gagal bersihkan folder gambar:", e);
   }
 }
 
-/* ── Signed URL (cache sesi) ─────────────────────────────────── */
+/* ── Presigned URL (R2 via Edge Function, cache sesi) ───────────── */
 
 type CachedUrl = { url: string; exp: number };
 const urlCache = new Map<string, CachedUrl>();
@@ -269,25 +300,27 @@ async function signedUrlsFor(paths: string[]): Promise<Map<string, string>> {
   });
   if (fresh.length > 0) {
     try {
-      const { data, error } = await supabase.storage
-        .from(NOTE_IMAGES_BUCKET)
-        .createSignedUrls(fresh, SIGNED_URL_TTL);
-      if (error) throw new Error(error.message);
-      for (const row of data ?? []) {
-        if (row?.path && row?.signedUrl) {
-          urlCache.set(row.path, { url: row.signedUrl, exp: now + SIGNED_URL_TTL * 1000 });
-          out.set(row.path, row.signedUrl);
-        }
+      const res = await fetch(`${FUNCTIONS_BASE()}?action=sign-note`, {
+        method: "POST",
+        headers: await authHeaders(true),
+        body: JSON.stringify({ paths: fresh }),
+      });
+      if (!res.ok) throw new Error(`Sign gagal: ${res.status}`);
+      const data = (await res.json()) as { urls: Record<string, string> };
+      for (const [path, url] of Object.entries(data.urls ?? {})) {
+        urlCache.set(path, { url, exp: now + SIGNED_URL_TTL * 1000 });
+        out.set(path, url);
       }
     } catch (e) {
-      console.warn("[note-images] gagal buat signed URL:", e);
+      console.warn("[note-images] gagal buat presigned URL:", e);
     }
   }
   return out;
 }
 
 /**
- * Tukar data-storage-path menjadi signed URL pada <img> di dalam container.
+ * Tukar data-storage-path menjadi presigned URL pada <img> di dalam container.
+ * Mendukung R2 key (notes/...) DAN path Supabase lama (notes/...).
  * Dipakai editor (mode baca-tulis) maupun tampilan read-only. Idempotent.
  */
 export async function resolveNoteImageUrls(container: HTMLElement): Promise<void> {
@@ -406,9 +439,18 @@ export function nextCaptionAt(root: ParentNode, atNode: Node | null): string {
   return `Gambar ${s}.${(seq.get(s) ?? 0) + 1}`;
 }
 
-/** Unduh bytes gambar storage (autentikasi) — untuk crop/replace tanpa masalah CORS. */
+/** Unduh bytes gambar storage (autentikasi) — untuk crop/replace tanpa masalah CORS.
+ *  Hanya R2 via Edge Function proxy. */
 export async function downloadNoteImage(path: string): Promise<Blob> {
-  const { data, error } = await supabase.storage.from(NOTE_IMAGES_BUCKET).download(path);
-  if (error || !data) throw new Error(`Unduh gambar gagal: ${error?.message ?? "unknown"}`);
-  return data;
+  if (!isSupabaseConfigured) throw new Error("Storage tidak dikonfigurasi");
+
+  const res = await fetch(`${FUNCTIONS_BASE()}?action=download`, {
+    method: "POST",
+    headers: await authHeaders(true),
+    body: JSON.stringify({ file_id: path }),
+  });
+  if (!res.ok) throw new Error(`Unduh gambar gagal: ${res.status}`);
+  const blob = await res.blob();
+  if (blob.size === 0) throw new Error("File kosong");
+  return blob;
 }

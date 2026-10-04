@@ -289,3 +289,104 @@ export function formatBytesHuman(bytes: number): string {
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
+
+/* ── Note images helpers ──────────────────────────────────────── */
+
+export interface NoteImageUploadResult {
+  key: string;
+  name: string;
+  size: number;
+}
+
+/** Upload bytes gambar note ke prefix notes/{userId}/{noteId}/ */
+export async function uploadNoteImage(opts: {
+  userId: string;
+  noteId: string;
+  fileName: string;
+  mimeType: string;
+  bytes: Uint8Array;
+}): Promise<NoteImageUploadResult> {
+  const { client } = getClient();
+  const prefix = `notes/${opts.userId}/${opts.noteId}`;
+  const unique = `${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+  const key = [prefix, `${unique}-${safeFileName(opts.fileName)}`].join("/");
+
+  const res = await client.fetch(objectUrl(key), {
+    method: "PUT",
+    headers: { "Content-Type": opts.mimeType || "image/webp" },
+    body: toBodyInit(opts.bytes),
+  });
+  if (!res.ok) {
+    throw new Error(`Gagal upload note image ke R2: ${res.status} ${await res.text()}`);
+  }
+  return { key, name: opts.fileName, size: opts.bytes.length };
+}
+
+/** Buat presigned GET URL untuk akses browser langsung ke R2. */
+export async function presignNoteImageGet(key: string, ttlSeconds = 3600): Promise<string> {
+  const { client, endpoint, bucket } = getClient();
+  const url = `${endpoint}/${encodeSegment(bucket)}/${encodeKey(key)}`;
+  const signed = await client.sign(new Request(url, { method: "GET" }), {
+    aws: { signQuery: true },
+    expiresIn: ttlSeconds,
+  });
+  return signed.url;
+}
+
+/** Hapus beberapa objek note image (array key). */
+export async function deleteNoteImages(keys: string[]): Promise<void> {
+  const { client } = getClient();
+  const uniq = [...new Set(keys?.filter(Boolean) ?? [])];
+  if (uniq.length === 0) return;
+  for (const key of uniq) {
+    const res = await client.fetch(objectUrl(key), { method: "DELETE" });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`Gagal hapus note image ${key}: ${res.status} ${await res.text()}`);
+    }
+  }
+}
+
+/** Hapus seluruh folder gambar note (prefix notes/{userId}/{noteId}/). */
+export async function deleteNoteImageFolder(userId: string, noteId: string): Promise<void> {
+  const { client, bucket, endpoint } = getClient();
+  const prefix = `notes/${userId}/${noteId}/`;
+  const base = `${endpoint}/${encodeSegment(bucket)}`;
+  let continuationToken: string | undefined;
+
+  for (let i = 0; i < 100; i++) {
+    const url = new URL(base);
+    url.searchParams.set("list-type", "2");
+    url.searchParams.set("prefix", prefix);
+    url.searchParams.set("max-keys", "1000");
+    if (continuationToken) {
+      url.searchParams.set("continuation-token", continuationToken);
+    }
+
+    const res = await client.fetch(url.toString(), { method: "GET" });
+    if (!res.ok) {
+      throw new Error(`Gagal list note images: ${res.status} ${await res.text()}`);
+    }
+    const xml = await res.text();
+
+    const keys: string[] = [];
+    for (const block of xml.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
+      const keyMatch = block[1].match(/<Key>([\s\S]*?)<\/Key>/);
+      if (keyMatch) keys.push(xmlUnescape(keyMatch[1]));
+    }
+    if (keys.length > 0) {
+      for (const key of keys) {
+        const delRes = await client.fetch(objectUrl(key), { method: "DELETE" });
+        if (!delRes.ok && delRes.status !== 404) {
+          throw new Error(`Gagal hapus ${key}: ${delRes.status} ${await delRes.text()}`);
+        }
+      }
+    }
+
+    const truncated = /<IsTruncated>true<\/IsTruncated>/.test(xml);
+    if (!truncated) break;
+
+    const tokenMatch = xml.match(/<NextContinuationToken>([\s\S]*?)<\/NextContinuationToken>/);
+    if (!tokenMatch) break;
+    continuationToken = xmlUnescape(tokenMatch[1]);
+  }
+}

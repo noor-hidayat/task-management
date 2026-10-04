@@ -21,6 +21,8 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, errorResponse, json } from "../_shared/cors.ts";
 import {
   deleteFile,
+  deleteNoteImageFolder,
+  deleteNoteImages,
   downloadFile,
   exceedsLimit,
   folderPrefix,
@@ -28,8 +30,10 @@ import {
   getBucketUsage,
   getFileMeta,
   maxStorageBytes,
+  presignNoteImageGet,
   rootPrefix,
   uploadFile,
+  uploadNoteImage,
 } from "../_shared/storage.ts";
 
 type OwnerKind = "work" | "issue";
@@ -68,6 +72,14 @@ Deno.serve(async (req: Request) => {
         return await handleDelete(req, supabase, user.id);
       case "usage":
         return await handleUsage();
+      case "upload-note":
+        return await handleUploadNote(req, supabase, user.id);
+      case "sign-note":
+        return await handleSignNote(req, supabase, user.id);
+      case "delete-note":
+        return await handleDeleteNote(req, supabase, user.id);
+      case "delete-note-folder":
+        return await handleDeleteNoteFolder(req, supabase, user.id);
       default:
         return errorResponse("Unknown action", 404);
     }
@@ -263,4 +275,189 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/* ── Note Images (R2) ───────────────────────────────────────── */
+
+async function canAccessNote(
+  supabase: ReturnType<typeof createClient>,
+  userId: string,
+  noteId: string
+): Promise<boolean> {
+  // Check if note exists and user has access via RLS (owner or shared)
+  const { data } = await supabase
+    .from("notes")
+    .select("id, owner_id")
+    .eq("id", noteId)
+    .maybeSingle();
+  if (!data) return false;
+  // Owner can always access
+  if (data.owner_id === userId) return true;
+  // Check shared access
+  const { data: shared } = await supabase
+    .from("note_shares")
+    .select("id")
+    .eq("note_id", noteId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  return Boolean(shared);
+}
+
+/** Upload gambar note (multipart: userId, noteId, file) */
+async function handleUploadNote(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<Response> {
+  const form = await req.formData();
+  const noteId = String(form.get("note_id") ?? "");
+  const file = form.get("file");
+
+  if (!noteId) return errorResponse("note_id wajib", 400);
+  if (!(file instanceof File)) return errorResponse("file wajib (multipart)", 400);
+  if (!file.type.startsWith("image/")) return errorResponse("file harus gambar", 400);
+
+  if (!(await canAccessNote(supabase, userId, noteId)))
+    return errorResponse("Tidak berhak mengakses note ini", 403);
+
+  const bytes = new Uint8Array(await file.arrayBuffer());
+
+  // Batas ukuran per gambar (mis. 10 MB)
+  const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+  if (bytes.length > MAX_IMAGE_BYTES)
+    return errorResponse(`Gambar terlalu besar (maks 10 MB)`, 413);
+
+  // Gate kuota: gambar note masuk bucket R2 yang sama, jadi ikut batas aman
+  // (default 9 GiB) agar tidak menembus kuota gratis R2.
+  const limit = maxStorageBytes();
+  let usage;
+  try {
+    usage = await getBucketUsage();
+  } catch (e) {
+    return errorResponse(
+      `Tidak bisa memeriksa kapasitas storage: ${e instanceof Error ? e.message : String(e)}`,
+      503
+    );
+  }
+  if (exceedsLimit(usage.totalBytes, bytes.length, limit)) {
+    const sisa = Math.max(0, limit - usage.totalBytes);
+    return errorResponse(
+      `Storage penuh — sisa kapasitas ${formatBytesHuman(sisa)} dari batas ` +
+        `${formatBytesHuman(limit)} (terpakai ${formatBytesHuman(usage.totalBytes)}). ` +
+        `Hapus file lama untuk mengosongkan ruang.`,
+      507
+    );
+  }
+
+  const uploaded = await uploadNoteImage({
+    userId,
+    noteId,
+    fileName: file.name,
+    mimeType: file.type || "image/webp",
+    bytes,
+  });
+
+  return json({ key: uploaded.key, name: uploaded.name, size: uploaded.size });
+}
+
+/** Presigned GET URL untuk array key gambar note */
+async function handleSignNote(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<Response> {
+  const { paths } = await req.json().catch(() => ({}));
+  const keys = (paths ?? []) as string[];
+
+  if (!keys.length) return errorResponse("paths (array key) wajib", 400);
+
+  // Verifikasi akses: semua key harus di prefix notes/{userId}/... atau note yang di-share
+  // Cek prefix ownership sederhana: key harus contain notes/{userId}/
+  // Atau jika shared, cek note_id dari key.
+  for (const key of keys) {
+    if (!key.startsWith(`notes/${userId}/`)) {
+      // Extract noteId from key: notes/{uid}/{nid}/...
+      const match = key.match(/^notes\/[^/]+\/([^/]+)\//);
+      if (match) {
+        const noteId = match[1];
+        if (!(await canAccessNote(supabase, userId, noteId))) {
+          return errorResponse("Akses ditolak ke salah satu gambar", 403);
+        }
+      } else {
+        return errorResponse("Format key tidak valid", 400);
+      }
+    }
+  }
+
+  const urls: Record<string, string> = {};
+  for (const key of keys) {
+    try {
+      urls[key] = await presignNoteImageGet(key, 3600);
+    } catch (e) {
+      console.warn(`Presign gagal ${key}:`, e);
+    }
+  }
+  return json({ urls });
+}
+
+/** Hapus beberapa gambar note (array key) */
+async function handleDeleteNote(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<Response> {
+  const { paths } = await req.json().catch(() => ({}));
+  const keys = (paths ?? []) as string[];
+
+  if (!keys.length) return errorResponse("paths (array key) wajib", 400);
+
+  // Verifikasi akses sama seperti sign-note
+  for (const key of keys) {
+    if (!key.startsWith(`notes/${userId}/`)) {
+      const match = key.match(/^notes\/[^/]+\/([^/]+)\//);
+      if (match) {
+        const noteId = match[1];
+        if (!(await canAccessNote(supabase, userId, noteId))) {
+          return errorResponse("Akses ditolak ke salah satu gambar", 403);
+        }
+      } else {
+        return errorResponse("Format key tidak valid", 400);
+      }
+    }
+  }
+
+  try {
+    await deleteNoteImages(keys);
+  } catch (e) {
+    return errorResponse(
+      `Gagal hapus gambar: ${e instanceof Error ? e.message : String(e)}`,
+      502
+    );
+  }
+  return json({ ok: true, deleted: keys.length });
+}
+
+/** Hapus seluruh folder gambar note (note dihapus) */
+async function handleDeleteNoteFolder(
+  req: Request,
+  supabase: ReturnType<typeof createClient>,
+  userId: string
+): Promise<Response> {
+  const { note_id } = await req.json().catch(() => ({}));
+  const noteId = note_id as string | undefined;
+
+  if (!noteId) return errorResponse("note_id wajib", 400);
+
+  if (!(await canAccessNote(supabase, userId, noteId)))
+    return errorResponse("Tidak berhak menghapus gambar note ini", 403);
+
+  try {
+    await deleteNoteImageFolder(userId, noteId);
+  } catch (e) {
+    return errorResponse(
+      `Gagal bersihkan folder gambar: ${e instanceof Error ? e.message : String(e)}`,
+      502
+    );
+  }
+  return json({ ok: true });
 }
