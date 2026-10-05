@@ -72,6 +72,15 @@ export function FileUploadDialog({
     return () => clearInterval(timer);
   }, [status]);
 
+  // Pasang stream ke elemen <video> SETELAH elemennya dirender (status="camera").
+  // Sebelumnya srcObject dipasang saat videoRef masih null → preview hitam.
+  useEffect(() => {
+    if (status === "camera" && videoRef.current && streamRef.current) {
+      videoRef.current.srcObject = streamRef.current;
+      void videoRef.current.play?.().catch(() => {});
+    }
+  }, [status]);
+
   const handleFiles = async (files: FileList | null) => {
     if (!files || files.length === 0) return;
     setCount(files.length);
@@ -110,29 +119,37 @@ export function FileUploadDialog({
     setIsDragging(false);
   };
 
-  const openCamera = async () => {
+  const openCamera = () => {
     setCameraError(null);
-    // getUserMedia butuh HTTPS + izin eksplisit, dan sering diblokir di webview HP.
-    // Kalau tidak tersedia, jatuh ke input capture native (buka app kamera bawaan).
+    // Di HP, pakai kamera bawaan OS lewat input capture native: dipanggil SINKRON
+    // di dalam gesture klik, jadi tidak diblokir popup-blocker / webview.
+    // getUserMedia (kamera in-app) sering diblokir di webview HP.
+    const isMobile =
+      typeof navigator !== "undefined" &&
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent);
+    if (isMobile) {
+      captureInputRef.current?.click();
+      return;
+    }
+    // Desktop: coba kamera in-app dulu; kalau tak tersedia/gagal, fallback native.
     if (!navigator.mediaDevices?.getUserMedia) {
       captureInputRef.current?.click();
       return;
     }
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-        audio: false,
-      });
-      streamRef.current = stream;
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+    void (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: "environment" },
+          audio: false,
+        });
+        streamRef.current = stream;
+        setStatus("camera");
+      } catch (err) {
+        console.error("Camera access denied:", err);
+        setCameraError("Kamera tidak bisa diakses. Coba izinkan akses kamera.");
+        captureInputRef.current?.click();
       }
-      setStatus("camera");
-    } catch (err) {
-      console.error("Camera access denied:", err);
-      // Fallback: kamera bawaan OS lewat input file capture.
-      captureInputRef.current?.click();
-    }
+    })();
   };
 
   const capturePhoto = () => {

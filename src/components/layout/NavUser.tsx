@@ -26,8 +26,6 @@ import {
 } from "@/components/ui/sidebar";
 import { useAuth } from "@/contexts/AuthContext";
 import { avatarColor } from "@/lib/format";
-import { useIssues, useWorks } from "@/hooks/useSupabaseLists";
-import { useMemo } from "react";
 
 
 function getInitials(name: string): string {
@@ -42,17 +40,6 @@ function getInitials(name: string): string {
 function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"] }) {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const { data: works } = useWorks();
-  const { data: issues } = useIssues();
-
-  const stats = useMemo(() => {
-    if (!user) return { tasks: 0 };
-    const userTasks = works.filter((w) => w.assignedTo === user.name);
-    const userIssues = issues.filter((i) => (i.assignees ?? [i.assignedTo]).includes(user.name));
-    return {
-      tasks: userTasks.length + userIssues.length,
-    };
-  }, [works, issues, user]);
 
   return (
     <>
@@ -76,23 +63,6 @@ function UserDropdownContent({ user }: { user: ReturnType<typeof useAuth>["user"
           </div>
         </div>
       </DropdownMenuLabel>
-
-      <DropdownMenuSeparator />
-
-      {/* Quick stats */}
-      <div className="grid grid-cols-1 gap-2 px-4 pb-3">
-        {[
-          { label: "Tasks", value: stats.tasks },
-        ].map((stat) => (
-          <div
-            key={stat.label}
-            className="flex flex-col items-center rounded-lg bg-muted/60 px-2 py-2"
-          >
-            <span className="text-sm font-bold">{stat.value}</span>
-            <span className="text-[10px] text-muted-foreground">{stat.label}</span>
-          </div>
-        ))}
-      </div>
 
       <DropdownMenuSeparator />
 
