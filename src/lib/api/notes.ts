@@ -1,7 +1,7 @@
 import { supabase, isSupabaseConfigured } from "@/lib/supabase";
 import { formatDateTime } from "@/lib/format";
 import { makeNameMap, nameOf } from "./mappers";
-import type { Note, NoteRelatedType, NoteRelation, NoteShare } from "@/types";
+import type { Comment, Note, NotePermission, NoteRelatedType, NoteRelation, NoteShare, NoteVisibility } from "@/types";
 
 interface NoteRow {
   id: string;
@@ -9,6 +9,7 @@ interface NoteRow {
   title: string | null;
   content: string | null;
   tags: string[] | null;
+  visibility: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -45,7 +46,8 @@ type LocalNote = {
   title: string;
   content: string;
   tags: string[];
-  shares: { userId: string; userName: string }[];
+  visibility?: NoteVisibility;
+  shares: { userId: string; userName: string; permission?: NotePermission }[];
   relations: { relatedType: NoteRelatedType; relatedId: string; relatedNumber?: string; relatedTitle?: string }[];
   createdAt: string;
   updatedAt: string;
@@ -73,6 +75,9 @@ function toNoteFromLocal(
   l: LocalNote,
   currentUserId: string | undefined
 ): Note {
+  const isOwner = !currentUserId || l.ownerId === currentUserId;
+  const myShare = currentUserId ? l.shares.find((s) => s.userId === currentUserId) : undefined;
+  const canEdit = isOwner || myShare?.permission === "edit";
   return {
     id: l.id,
     ownerId: l.ownerId,
@@ -81,12 +86,14 @@ function toNoteFromLocal(
     content: l.content,
     tags: l.tags,
     shared: l.shares.length > 0,
-    isOwner: !currentUserId || l.ownerId === currentUserId,
+    isOwner,
+    canEdit,
+    visibility: l.visibility ?? "private",
     shares: l.shares.map((s) => ({
       id: `${l.id}:${s.userId}`,
       userId: s.userId,
       userName: s.userName,
-      permission: "view" as const,
+      permission: s.permission === "edit" ? "edit" : "view",
       createdAt: l.updatedAt,
     })),
     relations: l.relations.map((r, i) => ({
@@ -135,6 +142,10 @@ function rowToNote(
     };
   });
   const ownerId = row.owner_id ?? "";
+  const isOwner = currentUserId ? ownerId === currentUserId : true;
+  const myShare = currentUserId
+    ? shares.find((s) => s.userId === currentUserId)
+    : undefined;
   return {
     id: row.id,
     ownerId,
@@ -143,7 +154,9 @@ function rowToNote(
     content: row.content ?? "",
     tags: Array.isArray(row.tags) ? row.tags : [],
     shared: shares.length > 0,
-    isOwner: currentUserId ? ownerId === currentUserId : true,
+    isOwner,
+    canEdit: isOwner || myShare?.permission === "edit",
+    visibility: row.visibility === "public" ? "public" : "private",
     shares,
     relations,
     createdAt: formatDateTime(row.created_at),
@@ -165,7 +178,7 @@ export async function listNotes(currentUserId?: string): Promise<Note[]> {
   try {
     const { data, error } = await supabase
       .from("notes")
-      .select("id, owner_id, title, content, tags, created_at, updated_at")
+      .select("id, owner_id, title, content, tags, visibility, created_at, updated_at")
       .order("updated_at", { ascending: false });
     if (error) throw new Error(error.message);
     rows = (data ?? []) as NoteRow[];
@@ -250,7 +263,7 @@ export async function createNote(input: {
     const { data, error } = await supabase
       .from("notes")
       .insert({ owner_id: input.ownerId, title: input.title, content: input.content, tags: input.tags })
-      .select("id, owner_id, title, content, tags, created_at, updated_at")
+      .select("id, owner_id, title, content, tags, visibility, created_at, updated_at")
       .single();
     if (error) throw new Error(error.message);
     const [note] = await listNotes(input.ownerId).then((all) =>
@@ -267,6 +280,8 @@ export async function createNote(input: {
       tags: row.tags ?? input.tags,
       shared: false,
       isOwner: true,
+      canEdit: true,
+      visibility: row.visibility === "public" ? "public" : "private",
       shares: [],
       relations: [],
       createdAt: formatDateTime(row.created_at),
@@ -336,15 +351,23 @@ export async function deleteNote(id: string): Promise<void> {
 
 /* ── Sharing (owner-only; shared users read-only) ── */
 
-export async function shareNote(noteId: string, userId: string): Promise<void> {
+export async function shareNote(
+  noteId: string,
+  userId: string,
+  permission: NotePermission = "view"
+): Promise<void> {
   if (noteId.startsWith("local-") || !isSupabaseConfigured) {
     const all = loadLocal();
-    const { data: profiles } = { data: null as null };
-    void profiles;
     saveLocal(
       all.map((n) =>
-        n.id === noteId && !n.shares.some((s) => s.userId === userId)
-          ? { ...n, shares: [...n.shares, { userId, userName: userId }], updatedAt: new Date().toISOString() }
+        n.id === noteId
+          ? {
+              ...n,
+              shares: n.shares.some((s) => s.userId === userId)
+                ? n.shares.map((s) => (s.userId === userId ? { ...s, permission } : s))
+                : [...n.shares, { userId, userName: userId, permission }],
+              updatedAt: new Date().toISOString(),
+            }
           : n
       )
     );
@@ -352,7 +375,39 @@ export async function shareNote(noteId: string, userId: string): Promise<void> {
   }
   const { error } = await supabase
     .from("note_shares")
-    .upsert({ note_id: noteId, user_id: userId, permission: "view" }, { onConflict: "note_id,user_id" });
+    .upsert({ note_id: noteId, user_id: userId, permission }, { onConflict: "note_id,user_id" });
+  if (error) throw new Error(error.message);
+}
+
+/** Ubah permission share yang sudah ada (view ↔ edit). */
+export async function setSharePermission(
+  noteId: string,
+  userId: string,
+  permission: NotePermission
+): Promise<void> {
+  if (noteId.startsWith("local-") || !isSupabaseConfigured) {
+    await shareNote(noteId, userId, permission);
+    return;
+  }
+  const { error } = await supabase
+    .from("note_shares")
+    .update({ permission })
+    .eq("note_id", noteId)
+    .eq("user_id", userId);
+  if (error) throw new Error(error.message);
+}
+
+/** Set visibility note: 'private' (hanya owner+shared) atau 'public' (semua user). */
+export async function setNoteVisibility(noteId: string, visibility: NoteVisibility): Promise<void> {
+  if (noteId.startsWith("local-") || !isSupabaseConfigured) {
+    saveLocal(
+      loadLocal().map((n) =>
+        n.id === noteId ? { ...n, visibility, updatedAt: new Date().toISOString() } : n
+      )
+    );
+    return;
+  }
+  const { error } = await supabase.from("notes").update({ visibility }).eq("id", noteId);
   if (error) throw new Error(error.message);
 }
 
@@ -492,4 +547,63 @@ export function normalizeTag(raw: string): string {
 export function parseTagsInput(raw: string): string[] {
   const parts = raw.split(/[#,\s]+/).map(normalizeTag).filter(Boolean);
   return Array.from(new Set(parts));
+}
+
+/* ── Comments (mirip task/issue: tabel public.comments, owner_type='note') ── */
+
+interface NoteCommentRow {
+  id: string;
+  text: string;
+  author_id: string | null;
+  created_at: string;
+}
+
+/** Daftar komentar satu note (paling lama → terbaru), plus peta id→nama author. */
+export async function listNoteComments(
+  noteId: string
+): Promise<{ comments: Comment[]; names: Map<string, string> }> {
+  if (!isSupabaseConfigured || noteId.startsWith("local-")) return { comments: [], names: new Map() };
+  const { data, error } = await supabase
+    .from("comments")
+    .select("id, text, author_id, created_at")
+    .eq("owner_type", "note")
+    .eq("owner_id", noteId)
+    .order("created_at", { ascending: true });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as NoteCommentRow[];
+  const authorIds = Array.from(
+    new Set(rows.map((r) => r.author_id).filter((v): v is string => Boolean(v)))
+  );
+  const names = new Map<string, string>();
+  if (authorIds.length) {
+    const { data: profiles } = await supabase.from("profiles").select("id, name").in("id", authorIds);
+    for (const p of (profiles ?? []) as { id: string; name: string }[]) names.set(p.id, p.name);
+  }
+  const comments: Comment[] = rows.map((r) => ({
+    id: r.id,
+    author: nameOf(names, r.author_id, "—"),
+    text: r.text,
+    at: formatDateTime(r.created_at),
+  }));
+  return { comments, names };
+}
+
+/** Tambah komentar pada note. */
+export async function addNoteComment(
+  noteId: string,
+  authorId: string,
+  text: string
+): Promise<void> {
+  if (!isSupabaseConfigured || noteId.startsWith("local-")) return;
+  const { error } = await supabase
+    .from("comments")
+    .insert({ owner_type: "note", owner_id: noteId, author_id: authorId, text });
+  if (error) throw new Error(error.message);
+}
+
+/** Hapus komentar (author sendiri atau admin, mengikuti RLS). */
+export async function deleteNoteComment(commentId: string): Promise<void> {
+  if (!isSupabaseConfigured) return;
+  const { error } = await supabase.from("comments").delete().eq("id", commentId);
+  if (error) throw new Error(error.message);
 }

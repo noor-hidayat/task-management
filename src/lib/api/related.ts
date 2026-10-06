@@ -3,7 +3,7 @@ import type { Activity, Comment, Evidence } from "@/types";
 import { formatBytes, nameOf, type NameMap } from "./mappers";
 import { formatDateTime } from "@/lib/format";
 
-type OwnerKind = "work" | "issue";
+type OwnerKind = "work" | "issue" | "note";
 
 interface AttachmentRow {
   id: string;

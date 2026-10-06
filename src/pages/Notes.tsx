@@ -1,16 +1,20 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
+  AlignLeft,
   ArrowLeft,
   CircleDot,
   FileText,
+  Globe,
   ListChecks,
   Lock,
+  MessageSquare,
   MoreHorizontal,
   NotebookPen,
   Pencil,
   Plus,
   Search,
+  SendHorizontal,
   Share2,
   Trash2,
   Users,
@@ -36,7 +40,15 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Textarea } from "@/components/ui/textarea";
 import { RichTextView, extractMentions, sanitizeRichHtml } from "@/components/rich-text-editor";
 import { NoteFormDialog, type NoteFormValues } from "@/components/note-form-dialog";
 import { PageSkeleton } from "@/components/page-skeleton";
@@ -46,10 +58,15 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useNotes } from "@/hooks/useNotes";
 import { useUsers } from "@/hooks/useSupabaseLists";
 import {
+  addNoteComment,
   addNoteRelation,
   createNote,
   deleteNote,
+  deleteNoteComment,
+  listNoteComments,
   removeNoteRelationByTarget,
+  setNoteVisibility,
+  setSharePermission,
   shareNote,
   unshareNote,
   updateNote,
@@ -63,7 +80,8 @@ import {
   type PendingNoteImages,
 } from "@/lib/api/noteImages";
 import { notifyMentions, pushNotification } from "@/lib/api/notifications";
-import type { Note, NoteRelatedType } from "@/types";
+import { supabase } from "@/lib/supabase";
+import type { Comment, Note, NotePermission, NoteRelatedType, NoteVisibility } from "@/types";
 
 type ListFilter = "all" | "mine" | "shared";
 
@@ -84,7 +102,7 @@ function capitalize(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
 
-/* ── Share dialog (owner only, read-only "Can view") ── */
+/* ── Share dialog (owner only): visibility Public/Private + per-user permission ── */
 
 function ShareDialog({
   note,
@@ -101,10 +119,14 @@ function ShareDialog({
   const { user: currentUser } = useAuth();
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+  const [visibility, setVisibility] = useState<NoteVisibility>("private");
 
   useEffect(() => {
-    if (open) setQuery("");
-  }, [open ]);
+    if (open) {
+      setQuery("");
+      setVisibility(note?.visibility ?? "private");
+    }
+  }, [open, note?.visibility, note?.id]);
 
   const candidates = useMemo(() => {
     const sharedIds = new Set((note?.shares ?? []).map((s) => s.userId));
@@ -120,7 +142,7 @@ function ShareDialog({
   const doShare = async (userId: string) => {
     setBusy(userId);
     try {
-      await shareNote(note.id, userId);
+      await shareNote(note.id, userId, "view");
       // Notifikasi ke user yang baru diberi akses (best effort).
       try {
         await pushNotification({
@@ -150,6 +172,27 @@ function ShareDialog({
     }
   };
 
+  const doSetPermission = async (userId: string, permission: NotePermission) => {
+    setBusy(userId);
+    try {
+      await setSharePermission(note.id, userId, permission);
+      onChanged();
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const doSetVisibility = async (v: NoteVisibility) => {
+    setBusy("__vis__");
+    try {
+      await setNoteVisibility(note.id, v);
+      setVisibility(v);
+      onChanged();
+    } finally {
+      setBusy(null);
+    }
+  };
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-md">
@@ -158,9 +201,51 @@ function ShareDialog({
             <Share2 className="h-4 w-4" /> Share Note
           </DialogTitle>
           <DialogDescription>
-            Shared users have read-only access. New notes are private by default.
+            Choose who can access this note. Shared users are read-only unless you give Edit.
           </DialogDescription>
         </DialogHeader>
+
+        {/* Visibility: Private / Public */}
+        <div className="space-y-2 rounded-lg border p-3">
+          <p className="text-xs font-medium text-muted-foreground">General access</p>
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={busy === "__vis__"}
+              onClick={() => doSetVisibility("private")}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-50",
+                visibility === "private"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/40"
+              )}
+            >
+              <Lock className="h-4 w-4 shrink-0" />
+              <span className="min-w-0">
+                <span className="block font-medium">Private</span>
+                <span className="block text-[11px] text-muted-foreground">Only people added</span>
+              </span>
+            </button>
+            <button
+              type="button"
+              disabled={busy === "__vis__"}
+              onClick={() => doSetVisibility("public")}
+              className={cn(
+                "flex items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors disabled:opacity-50",
+                visibility === "public"
+                  ? "border-primary bg-primary/5"
+                  : "hover:bg-muted/40"
+              )}
+            >
+              <Globe className="h-4 w-4 shrink-0" />
+              <span className="min-w-0">
+                <span className="block font-medium">Public</span>
+                <span className="block text-[11px] text-muted-foreground">Anyone can read</span>
+              </span>
+            </button>
+          </div>
+        </div>
+
         <div className="relative">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -223,8 +308,20 @@ function ShareDialog({
                 </Avatar>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{s.userName}</span>
-                  <span className="block text-xs text-muted-foreground">Can view</span>
                 </span>
+                <Select
+                  value={s.permission}
+                  onValueChange={(v) => doSetPermission(s.userId, v as NotePermission)}
+                  disabled={busy === s.userId}
+                >
+                  <SelectTrigger className="h-7 w-[104px] text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="view">Can view</SelectItem>
+                    <SelectItem value="edit">Can edit</SelectItem>
+                  </SelectContent>
+                </Select>
                 <Button
                   variant="ghost"
                   size="sm"
@@ -238,7 +335,10 @@ function ShareDialog({
             ))}
             {note.shares.length === 0 && (
               <li className="flex items-center gap-2 rounded-lg border border-dashed px-3 py-2 text-xs text-muted-foreground">
-                <Lock className="h-3.5 w-3.5" /> Only me — this note is private.
+                <Lock className="h-3.5 w-3.5" />
+                {visibility === "public"
+                  ? "Public — anyone signed in can read this note."
+                  : "Only me — this note is private."}
               </li>
             )}
           </ul>
@@ -269,6 +369,12 @@ export function Notes() {
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
+
+  // Komentar note
+  const [comments, setComments] = useState<Comment[]>([]);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [commentBusy, setCommentBusy] = useState(false);
+  const commentInputRef = useRef<HTMLTextAreaElement>(null);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -323,6 +429,90 @@ export function Notes() {
     const target = searchParams.get("note");
     if (target && notes.some((n) => n.id === target)) setSelectedId(target);
   }, [searchParams, notes]);
+
+  // Load komentar saat note dipilih (reset saat pindah note) + realtime.
+  useEffect(() => {
+    setCommentDraft("");
+    if (!selected) {
+      setComments([]);
+      return;
+    }
+    let alive = true;
+    const load = () => {
+      listNoteComments(selected.id)
+        .then(({ comments: c }) => {
+          if (alive) setComments(c);
+        })
+        .catch(() => {
+          if (alive) setComments([]);
+        });
+    };
+    load();
+    const channel = supabase
+      .channel(`rt-note-comments-${selected.id}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "comments", filter: `owner_id=eq.${selected.id}` },
+        () => load()
+      )
+      .subscribe();
+    return () => {
+      alive = false;
+      void supabase.removeChannel(channel);
+    };
+  }, [selected?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const renderWithMentions = (text: string) => {
+    const names = [...users.map((u) => u.name)].sort((a, b) => b.length - a.length);
+    if (names.length === 0) return <span>{text}</span>;
+    const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`@(${names.map(esc).join("|")})`, "g");
+    const parts = text.split(re);
+    return parts.map((p, i) =>
+      names.includes(p) ? (
+        <span key={i} className="font-medium text-primary">
+          @{p}
+        </span>
+      ) : (
+        <span key={i}>{p}</span>
+      )
+    );
+  };
+
+  const postComment = async () => {
+    const clean = commentDraft.trim();
+    if (!clean || !selected || !currentUser) return;
+    setCommentBusy(true);
+    try {
+      await addNoteComment(selected.id, currentUser.id, clean);
+      try {
+        await notifyMentions({
+          content: clean,
+          users,
+          fromId: currentUser.id,
+          fromName: currentUser.name,
+          title: "You were mentioned in a note",
+          message: clean.length > 80 ? `${clean.slice(0, 80)}…` : clean,
+          link: `/notes?note=${selected.id}`,
+        });
+      } catch {
+        /* abaikan — komentar tetap terkirim */
+      }
+      setCommentDraft("");
+      if (commentInputRef.current) commentInputRef.current.style.height = "auto";
+      const { comments: c } = await listNoteComments(selected.id);
+      setComments(c);
+    } finally {
+      setCommentBusy(false);
+    }
+  };
+
+  const removeComment = async (commentId: string) => {
+    if (!selected) return;
+    await deleteNoteComment(commentId);
+    const { comments: c } = await listNoteComments(selected.id);
+    setComments(c);
+  };
 
   const handleCreate = () => {
     setCreateOpen(true);
@@ -604,19 +794,27 @@ export function Notes() {
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
-                        selected.shared
-                          ? "bg-sky-500/10 text-sky-700 dark:text-sky-400"
-                          : "bg-muted text-muted-foreground"
+                        selected.visibility === "public"
+                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                          : selected.shared
+                            ? "bg-sky-500/10 text-sky-700 dark:text-sky-400"
+                            : "bg-muted text-muted-foreground"
                       )}
                     >
-                      {selected.shared ? (
+                      {selected.visibility === "public" ? (
+                        <Globe className="h-3 w-3" />
+                      ) : selected.shared ? (
                         <Users className="h-3 w-3" />
                       ) : (
                         <Lock className="h-3 w-3" />
                       )}
-                      {selected.shared ? "Shared" : "Only me"}
+                      {selected.visibility === "public"
+                        ? "Public"
+                        : selected.shared
+                          ? "Shared"
+                          : "Only me"}
                     </span>
-                    {!selected.isOwner && (
+                    {!selected.canEdit && (
                       <span className="rounded-full bg-amber-500/10 px-2 py-0.5 font-medium text-amber-700 dark:text-amber-400">
                         Read-only
                       </span>
@@ -627,12 +825,14 @@ export function Notes() {
                   </h2>
                 </div>
               </div>
-              {selected.isOwner && (
+              {(selected.isOwner || selected.canEdit) && (
                 <div className="flex shrink-0 items-center gap-1.5">
-                  <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
-                    <Share2 className="h-4 w-4" />
-                    <span className="hidden sm:inline">Share</span>
-                  </Button>
+                  {selected.isOwner && (
+                    <Button variant="outline" size="sm" onClick={() => setShareOpen(true)}>
+                      <Share2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">Share</span>
+                    </Button>
+                  )}
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
                       <Button variant="ghost" size="icon" className="h-8 w-8" aria-label="More actions">
@@ -643,12 +843,14 @@ export function Notes() {
                       <DropdownMenuItem onClick={() => setEditOpen(true)}>
                         <Pencil className="h-4 w-4" /> Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem
-                        onClick={() => setDeleteOpen(true)}
-                        className="text-destructive focus:text-destructive"
-                      >
-                        <Trash2 className="h-4 w-4" /> Delete
-                      </DropdownMenuItem>
+                      {selected.isOwner && (
+                        <DropdownMenuItem
+                          onClick={() => setDeleteOpen(true)}
+                          className="text-destructive focus:text-destructive"
+                        >
+                          <Trash2 className="h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>
@@ -723,6 +925,82 @@ export function Notes() {
             })}
           </div>
         )}
+      </section>
+
+      {/* Comments — semua user yang bisa baca note boleh komentar */}
+      <section className="space-y-3">
+        <div className="flex items-center gap-2">
+          <MessageSquare className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Comments</h3>
+          {comments.length > 0 && (
+            <Badge variant="secondary" className="font-normal">
+              {comments.length}
+            </Badge>
+          )}
+        </div>
+
+        {comments.length === 0 ? (
+          <p className="text-xs text-muted-foreground">No comments yet. Be the first to comment.</p>
+        ) : (
+          <ul className="space-y-3">
+            {comments.map((c) => (
+              <li key={c.id} className="flex gap-2.5">
+                <Avatar className="mt-0.5 h-7 w-7 shrink-0">
+                  <AvatarFallback className={cn("text-[10px]", avatarColor(c.author))}>
+                    {initials(c.author)}
+                  </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium">{c.author}</span>
+                    {(c.time || c.at) && (
+                      <span className="text-xs text-muted-foreground">{c.time ?? c.at}</span>
+                    )}
+                    {c.author === currentUser?.name && (
+                      <button
+                        type="button"
+                        onClick={() => removeComment(c.id)}
+                        className="ml-auto text-xs text-muted-foreground hover:text-destructive"
+                        aria-label="Delete comment"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                  <p className="mt-0.5 text-sm break-words whitespace-pre-wrap">
+                    {renderWithMentions(c.text)}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="flex items-end gap-2">
+          <Textarea
+            ref={commentInputRef}
+            value={commentDraft}
+            onChange={(e) => setCommentDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void postComment();
+              }
+            }}
+            placeholder="Write a comment… use @ to mention"
+            rows={2}
+            className="min-h-[44px] resize-none text-sm"
+          />
+          <Button
+            size="sm"
+            disabled={commentBusy || !commentDraft.trim()}
+            onClick={() => void postComment()}
+            className="shrink-0"
+          >
+            <SendHorizontal className="h-4 w-4" />
+            <span className="hidden sm:inline">Send</span>
+          </Button>
+        </div>
       </section>
 
       {/* Mentions hint */}

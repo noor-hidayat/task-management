@@ -320,7 +320,7 @@ export async function listWorksByIds(ids: string[]): Promise<WorkItem[]> {
 
 /** Tulis satu entri aktivitas. */
 export async function logActivity(
-  ownerType: "work" | "issue",
+  ownerType: "work" | "issue" | "note",
   ownerId: string,
   text: string,
   actorId: string | null

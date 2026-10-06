@@ -169,6 +169,8 @@ export interface Issue {
 
 export type NotePermission = "view" | "edit";
 
+export type NoteVisibility = "private" | "public";
+
 export type NoteRelatedType = "task" | "issue";
 
 export interface NoteShare {
@@ -202,8 +204,13 @@ export interface Note {
   shared: boolean;
   /** True bila current user adalah owner. */
   isOwner: boolean;
+  /** True bila current user boleh mengubah note (owner / share 'edit'). */
+  canEdit: boolean;
+  /** 'private' (hanya owner+shared) atau 'public' (semua user bisa baca). */
+  visibility: NoteVisibility;
   shares: NoteShare[];
   relations: NoteRelation[];
+  comments?: Comment[];
   createdAt: string;
   updatedAt: string;
   /** ISO mentah untuk sorting. */
