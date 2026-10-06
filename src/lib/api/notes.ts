@@ -185,7 +185,13 @@ export async function listNotes(currentUserId?: string): Promise<Note[]> {
   } catch (e) {
     if (missingTable(e)) {
       return loadLocal()
-        .filter((n) => !currentUserId || n.ownerId === currentUserId || n.shares.some((s) => s.userId === currentUserId))
+        .filter(
+          (n) =>
+            !currentUserId ||
+            n.ownerId === currentUserId ||
+            n.visibility === "public" ||
+            n.shares.some((s) => s.userId === currentUserId)
+        )
         .sort((a, b) => +new Date(b.updatedAt) - +new Date(a.updatedAt))
         .map((l) => toNoteFromLocal(l, currentUserId));
     }

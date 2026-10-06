@@ -78,7 +78,16 @@ create policy activities_select on public.activities
   for select to authenticated
   using (owner_type <> 'note' or public.can_read_note(owner_id));
 
--- ── (5) cleanup saat note dihapus ────────────────────────────────
+-- ── (5) note_shares: izinkan owner ubah permission (view ↔ edit) ──
+-- Policy UPDATE wajib ada; tanpa ini setSharePermission() diam-diam no-op
+-- (RLS memblokir tanpa error yang jelas).
+drop policy if exists note_shares_update on public.note_shares;
+create policy note_shares_update on public.note_shares
+  for update to authenticated
+  using (public.is_note_owner(note_id) or public.is_admin())
+  with check (public.is_note_owner(note_id) or public.is_admin());
+
+-- ── (6) cleanup saat note dihapus ────────────────────────────────
 create or replace function public.cleanup_note_rows()
 returns trigger
 language plpgsql security definer set search_path = public
