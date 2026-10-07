@@ -5,17 +5,17 @@ type OwnerKind = "work" | "issue";
 
 /**
  * Ubah error mentah dari Edge Function `drive` jadi pesan yang bisa ditindak.
- * Kasus paling sering: kredensial storage (R2) belum diset / salah, sehingga
- * upload & unduh SEMUA attachment ikut gagal. Tanpa ini, user cuma lihat pesan
- * mentah dan mengira sesinya habis.
+ * Kasus paling sering: kredensial storage belum diset / salah, sehingga upload
+ * & unduh SEMUA attachment ikut gagal. Tanpa ini, user cuma lihat pesan mentah
+ * dan mengira sesinya habis.
  */
 function friendlyStorageError(raw: string | undefined, fallback: string): string {
   const msg = raw ?? "";
   if (/storage penuh|kapasitas|507/i.test(msg)) {
     return msg || "Storage penuh. Hapus file lama untuk mengosongkan ruang.";
   }
-  if (/R2_|belum diset|signature|access key|403|401.*r2/i.test(msg)) {
-    return "Koneksi ke storage terputus — kredensial storage (R2) belum diset atau salah. Hubungi admin.";
+  if (/storage|belum diset|signature|access key|bucket|403|401.*storage/i.test(msg)) {
+    return "Koneksi ke storage terputus — storage belum dikonfigurasi dengan benar. Hubungi admin.";
   }
   if (/missing authorization|unauthorized|\b401\b/i.test(msg)) {
     return "Sesi login kamu sudah berakhir. Login ulang lalu coba lagi.";

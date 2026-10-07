@@ -528,7 +528,7 @@ export function Notes() {
       ownerId: currentUser.id,
       ownerName: currentUser.name,
     });
-    // Upload semua gambar ke path asli noteId, lalu simpan HTML final (R2 key).
+    // Upload semua gambar ke path asli noteId, lalu simpan HTML final (storage key).
     const content = await persistNoteImages(note.content, images, {
       userId: currentUser.id,
       noteId: note.id,

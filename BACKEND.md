@@ -1,16 +1,17 @@
-# Backend Setup — Supabase + Cloudflare R2
+# Backend Setup — Supabase (database + auth + storage)
 
 Aplikasi ini memakai **Supabase** sebagai database + auth, dan
-**Cloudflare R2** (object storage, S3-compatible) sebagai storage file
-(evidence). Data diakses langsung dari SPA React via `supabase-js` dengan
+**Supabase Storage** sebagai storage file (evidence task/issue + gambar note).
+Data diakses langsung dari SPA React via `supabase-js` dengan
 **Row Level Security (RLS)**. Operasi file diproksikan lewat **Supabase Edge
-Functions** agar kredensial storage tidak bocor ke browser.
+Functions** agar hak akses tervalidasi di server.
 
 ```
 React SPA ──(supabase-js)──► Supabase
    │                          ├─ Auth (email + password, username → email sintetis)
    │                          ├─ Postgres (data + RLS + realtime)
-   │                          └─ Edge Functions ──► Cloudflare R2 (S3 API)
+   │                          ├─ Storage (bucket `attachments` + `notes`)
+   │                          └─ Edge Functions ──► Supabase Storage
    └──────────────────────────────┘   (drive, admin-users)
 ```
 
@@ -19,7 +20,6 @@ React SPA ──(supabase-js)──► Supabase
 - Node 18+ dan `pnpm`
 - [Supabase CLI](https://supabase.com/docs/guides/cli) (`npm i -g supabase` atau via `npx`)
 - Project Supabase (URL + anon key + service role key)
-- Akun Cloudflare dengan **R2** aktif + sebuah bucket (mis. `tims-evidence`)
 
 ## 2. Konfigurasi frontend
 
@@ -47,57 +47,44 @@ Migrasi:
 | `0007_grants.sql` | Grant ke role `authenticated`/`anon` |
 | `0008_seed_base.sql` | Seed shift, tim, core work |
 
-## 4. Set secret Edge Functions
+## 4. Storage (Supabase Storage)
 
-```bash
-# Kredensial Cloudflare R2
-supabase secrets set --env-file supabase/functions/.env
+Semua file disimpan di **Supabase Storage**, TIDAK ada kredensial pihak ketiga:
 
-# (opsional) untuk admin-users, service role diset terpisah
-supabase secrets set SUPABASE_SERVICE_ROLE_KEY=<service-role-key>
-```
+- bucket **`attachments`** → file evidence task/issue
+- bucket **`notes`** → gambar di dalam note
 
-Isi `supabase/functions/.env`:
-```
-R2_ACCOUNT_ID=...
-R2_ACCESS_KEY_ID=...
-R2_SECRET_ACCESS_KEY=...
-R2_BUCKET=tims-evidence
-# opsional: R2_ENDPOINT, R2_REGION, R2_PREFIX
-# opsional: R2_MAX_BYTES=9663676416   (batas upload, default 9 GiB)
-```
+Kedua bucket privat dan dibuat otomatis lewat migrasi database (`0031`, `0035`).
+Akses file lewat Edge Function `drive` yang memakai SERVICE ROLE (bypass RLS)
+dan memverifikasi hak akses user sendiri. `SUPABASE_URL` dan
+`SUPABASE_SERVICE_ROLE_KEY` di-inject otomatis oleh Supabase ke setiap Edge
+Function, jadi tak ada yang perlu diisi di `supabase/functions/.env`.
+
+Opsional: `STORAGE_MAX_BYTES` (batas upload, default 1 GiB = kuota storage
+gratis Supabase).
 
 ## 5. Deploy Edge Functions
 
-Cara cepat (set secret R2 + deploy sekaligus):
-
 ```bash
-bash scripts/setup-r2.sh
-```
-
-Script ini membaca `supabase/functions/.env`, memvalidasi 4 kredensial R2,
-lalu menjalankan `supabase secrets set` + `supabase functions deploy drive`.
-Butuh login CLI (`npx supabase login`) atau `SUPABASE_ACCESS_TOKEN` di `.env`.
-
-Manual:
-
-```bash
-npx supabase secrets set --env-file supabase/functions/.env
 npx supabase functions deploy drive
 npx supabase functions deploy admin-users
 ```
 
-- `drive?action=upload|download|delete|usage` — operasi file ke R2
-  (sub-prefix per issue/task, mis. `tims/issue-ISS-000101/`).
+Atau lewat helper: `bash scripts/setup-storage.sh` (baca project ref dari
+`.env`, butuh login CLI atau `SUPABASE_ACCESS_TOKEN`).
+
+- `drive?action=upload|download|delete|usage` — operasi file ke Supabase Storage
+  (sub-prefix per issue/task, mis. `issue-ISS-000101/`).
   Nama fungsi tetap `drive` demi kompatibilitas frontend; kolom DB
-  `drive_file_id` kini berisi **object key** R2 dan `drive_folder_id` berisi
-  **prefix**.
-  - `action=usage` mengembalikan kapasitas bucket (terpakai, batas, sisa).
-  - **Batas kuota**: sebelum upload, fungsi menghitung pemakaian bucket
-    sebenarnya (jumlah byte semua objek via S3 ListObjectsV2). Bila
-    `terpakai + file baru > R2_MAX_BYTES` (default **9 GiB**), upload ditolak
-    dengan HTTP **507** dan pesan "Storage penuh". Ini menjaga agar tak
-    menembus kuota gratis R2 (10 GB). Set `R2_MAX_BYTES` untuk mengubah batas.
+  `drive_file_id` kini berisi **object key** storage dan `drive_folder_id`
+  berisi **prefix**.
+  - `action=usage` mengembalikan kapasitas storage (terpakai, batas, sisa).
+  - **Batas kuota**: sebelum upload, fungsi menghitung pemakaian storage
+    sebenarnya (jumlah byte semua objek di bucket `attachments` + `notes`).
+    Bila `terpakai + file baru > STORAGE_MAX_BYTES` (default **1 GiB**), upload
+    ditolak dengan HTTP **507** dan pesan "Storage penuh". Set `STORAGE_MAX_BYTES`
+    untuk mengubah batas.
+  - Gambar note: `action=upload-note|sign-note|delete-note|delete-note-folder`.
 - `admin-users` — create/update/delete user oleh admin (butuh service role).
 
 ## 6. Seed user demo
@@ -125,7 +112,7 @@ pnpm dev
   yang ditugaskan padanya.
 - **Password** tidak pernah disimpan di database aplikasi — ditangani
   Supabase Auth (bcrypt).
-- **Kredensial R2** hanya ada di secret Edge Function; tidak pernah
-  masuk bundle frontend.
+- **Hak akses file** divalidasi di Edge Function (JWT + cek keanggotaan
+  owner); bucket privat, tidak ada akses langsung dari browser.
 - File diakses lewat proxy Edge Function dengan verifikasi JWT + RLS,
   sehingga file tetap privat (bucket tidak perlu publik).

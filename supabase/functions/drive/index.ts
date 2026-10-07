@@ -1,5 +1,5 @@
 // Edge Function: drive
-// Router untuk operasi file evidence ke object storage (Cloudflare R2).
+// Router untuk operasi file evidence ke Supabase Storage.
 //
 // Endpoint (POST JSON kecuali upload = multipart/form-data):
 //   ?action=upload   form-data: owner_type, owner_id, owner_label, file
@@ -7,15 +7,16 @@
 //   ?action=delete    json: { file_id, attachment_id }
 //   ?action=usage     (GET/POST)         → kapasitas bucket + sisa kuota
 //
-// Upload diblokir (HTTP 507) bila pemakaian bucket + file baru melewati batas
-// aman (default 9 GiB, atur lewat secret R2_MAX_BYTES) supaya tak menembus
-// kuota gratis R2 (10 GB).
+// Upload diblokir (HTTP 507) bila pemakaian storage + file baru melewati batas
+// aman (default 1 GiB, atur lewat secret STORAGE_MAX_BYTES) supaya tak menembus
+// kuota storage gratis Supabase.
 //
 // Verifikasi JWT Supabase (verify_jwt=true di config.toml), dan cek
 // keanggotaan user terhadap owner entity sebelum upload/download/delete.
 //
 // Catatan: nama fungsi tetap "drive" (kompatibel dengan frontend). Kolom DB
-// `drive_file_id` kini berisi object key R2, `drive_folder_id` berisi prefix.
+// `drive_file_id` kini berisi object key Supabase Storage, `drive_folder_id`
+// berisi prefix.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { corsHeaders, errorResponse, json } from "../_shared/cors.ts";
@@ -277,7 +278,7 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-/* ── Note Images (R2) ───────────────────────────────────────── */
+/* ── Note Images (Supabase Storage) ─────────────────────────── */
 
 async function canAccessNote(
   supabase: ReturnType<typeof createClient>,
@@ -327,8 +328,8 @@ async function handleUploadNote(
   if (bytes.length > MAX_IMAGE_BYTES)
     return errorResponse(`Gambar terlalu besar (maks 10 MB)`, 413);
 
-  // Gate kuota: gambar note masuk bucket R2 yang sama, jadi ikut batas aman
-  // (default 9 GiB) agar tidak menembus kuota gratis R2.
+  // Gate kuota: gambar note masuk storage yang sama, jadi ikut batas aman
+  // (default 1 GiB) agar tidak menembus kuota gratis Supabase.
   const limit = maxStorageBytes();
   let usage;
   try {
