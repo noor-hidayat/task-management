@@ -16,6 +16,7 @@ dist-ssr
 supabase/.branches
 supabase/.temp
 supabase/functions/.env
+supabase/.sbp_token
 
 # Env secrets
 .env
