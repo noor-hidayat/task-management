@@ -69,7 +69,7 @@ export function AppLayout() {
   return (
     <SidebarProvider>
       <SidebarLeft />
-      <SidebarInset className="h-svh flex flex-col overflow-hidden">
+      <SidebarInset className="h-svh flex min-w-0 flex-col overflow-hidden">
         <header className="bg-background/95 pt-safe sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b backdrop-blur-md">
           {/* ── Mobile: logo + judul halaman ── */}
           <div className="flex flex-1 items-center gap-2 px-3 md:hidden">
@@ -211,7 +211,7 @@ export function AppLayout() {
           </div>
           <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
         </header>
-        <div className={cn("app-content-pad flex min-h-0 flex-1 flex-col overflow-y-auto")}>
+        <div className={cn("app-content-pad flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden")}>
           <Outlet />
         </div>
       </SidebarInset>

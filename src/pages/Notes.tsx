@@ -605,7 +605,7 @@ export function Notes() {
   if (loading) return <PageSkeleton />;
 
   const listPane = (
-    <div className="flex min-h-0 flex-1 flex-col gap-3 lg:flex-none lg:w-[340px] lg:shrink-0">
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
       <div className="flex items-center gap-2">
         <div className="relative flex-1">
           <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -1026,17 +1026,17 @@ export function Notes() {
   );
 
   return (
-    <div className="flex flex-col gap-4 lg:h-[calc(100svh-5.5rem)] lg:flex-row lg:overflow-hidden">
+    <div className="flex min-w-0 flex-col gap-4 lg:h-[calc(100svh-5.5rem)] lg:flex-row lg:overflow-hidden">
       {/* Mobile: list-first — show list OR detail */}
       <div className={cn("lg:hidden", selectedId ? "hidden" : "flex flex-col")}>{!selectedId && listPane}</div>
       <div className={cn("min-h-0 flex-1 lg:hidden", selectedId ? "block" : "hidden")}>
         {selectedId && detailPane}
       </div>
       {/* Desktop: side by side */}
-      <div className="hidden min-h-0 lg:flex lg:w-[340px] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:pr-1">
+      <div className="hidden min-h-0 min-w-0 lg:flex lg:w-[340px] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:pr-1">
         {listPane}
       </div>
-      <div className="hidden min-h-0 flex-1 lg:block lg:overflow-y-auto lg:rounded-xl lg:border lg:p-5">
+      <div className="hidden min-h-0 min-w-0 flex-1 lg:block lg:overflow-y-auto lg:rounded-xl lg:border lg:p-5">
         {detailPane}
       </div>
 
