@@ -67,21 +67,25 @@ export function AppLayout() {
   const hasUnread = unreadCount > 0;
 
   return (
-    <SidebarProvider>
-      <SidebarLeft />
-      <SidebarInset className="h-svh flex min-w-0 flex-col overflow-hidden">
-        <header className="bg-background/95 pt-safe sticky top-0 z-30 flex h-14 shrink-0 items-center gap-2 border-b backdrop-blur-md">
-          {/* ── Mobile: logo + judul halaman ── */}
-          <div className="flex flex-1 items-center gap-2 px-3 md:hidden">
-            <AppLogo iconClassName="h-4 w-4" className="[&>div:first-child]:h-7 [&>div:first-child]:w-7 [&>div:last-child]:hidden" />
-            <span className="text-sm font-semibold">{pageTitle(pathname)}</span>
+    <SidebarProvider className="flex-col">
+      {/* ── Topbar full-width di atas (memotong sidebar) ── */}
+      <header className="bg-background/95 pt-safe sticky top-0 z-30 flex h-14 w-full shrink-0 items-center gap-2 border-b px-3 backdrop-blur-md">
+          {/* ── Logo TIMS — selalu di topbar (kiri) ── */}
+          <AppLogo
+            iconClassName="h-4 w-4"
+            className="shrink-0 [&>div:first-child]:h-7 [&>div:first-child]:w-7 [&>div:last-child]:hidden min-[420px]:[&>div:last-child]:flex"
+          />
+
+          {/* ── Tengah: judul halaman (mobile) ── */}
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            <span className="truncate text-sm font-semibold md:hidden">{pageTitle(pathname)}</span>
           </div>
 
-          {/* ── Desktop: tombol search lebar ── */}
-          <div className="hidden flex-1 items-center gap-2 px-3 md:flex">
+          {/* ── Search box di tengah-tengah topbar (desktop) ── */}
+          <div className="absolute top-1/2 left-1/2 hidden -translate-x-1/2 -translate-y-1/2 md:block">
             <button
               onClick={() => setSearchOpen(true)}
-              className="flex w-56 items-center gap-2 rounded-full border border-border/60 bg-muted/20 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 lg:w-72"
+              className="flex w-72 items-center gap-2 rounded-md border border-border/60 bg-muted/20 px-3 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted/50 lg:w-96"
             >
               <Search className="h-4 w-4 shrink-0" />
               <span className="flex-1 text-left">Search...</span>
@@ -89,22 +93,22 @@ export function AppLayout() {
             </button>
           </div>
 
-          <div className="flex items-center gap-1 px-3 md:gap-2">
-            {/* Mobile: search icon */}
+          <div className="flex shrink-0 items-center gap-1 md:gap-2">
+            {/* Search (mobile) */}
             <Button
               variant="ghost"
               size="icon"
-              className="h-10 w-10 rounded-full md:hidden"
+              className="h-9 w-9 rounded-full md:hidden"
               onClick={() => setSearchOpen(true)}
               aria-label="Cari"
             >
               <Search className="h-[18px] w-[18px]" />
             </Button>
-            {/* Tema: hanya desktop (di mobile ada di sheet Menu) */}
+            {/* Dark mode — selalu di topbar */}
             <Button
               variant="ghost"
               size="icon"
-              className="hidden h-9 w-9 rounded-full md:inline-flex"
+              className="h-9 w-9 rounded-full"
               onClick={toggle}
               aria-label={isDark ? "Ganti ke terang" : "Ganti ke gelap"}
               title={isDark ? "Light mode" : "Dark mode"}
@@ -211,10 +215,16 @@ export function AppLayout() {
           </div>
           <GlobalSearch open={searchOpen} onOpenChange={setSearchOpen} />
         </header>
-        <div className={cn("app-content-pad flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden")}>
-          <Outlet />
-        </div>
-      </SidebarInset>
+
+      {/* ── Baris bawah topbar: sidebar + konten ── */}
+      <div className="flex min-h-0 w-full flex-1 [&_[data-slot=sidebar-container]]:top-14! [&_[data-slot=sidebar-container]]:h-[calc(100svh-3.5rem)]! [&_[data-slot=sidebar-gap]]:h-[calc(100svh-3.5rem)]!">
+        <SidebarLeft />
+        <SidebarInset className="flex h-[calc(100svh-3.5rem)] min-h-0 min-w-0 flex-col overflow-hidden">
+          <div className={cn("app-content-pad flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto overflow-x-hidden")}>
+            <Outlet />
+          </div>
+        </SidebarInset>
+      </div>
 
       {/* Bottom tab bar — hanya di layar < md */}
       <BottomNav />

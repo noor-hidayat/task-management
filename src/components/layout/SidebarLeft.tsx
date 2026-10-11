@@ -17,7 +17,6 @@ import {
   SidebarFooter,
   SidebarHeader,
 } from "@/components/ui/sidebar";
-import { AppLogo } from "@/components/layout/AppLogo";
 import { NavMain } from "@/components/layout/NavMain";
 import { NavSecondary } from "@/components/layout/NavSecondary";
 import { CreateIssueButton } from "@/components/layout/CreateIssue";
@@ -31,7 +30,6 @@ export function SidebarLeft({ ...props }: React.ComponentProps<typeof Sidebar>) 
   return (
     <Sidebar collapsible="offcanvas" className="border-r-0" {...props}>
       <SidebarHeader className="gap-1">
-        <AppLogo className="px-2 py-3" />
         <div className="px-0">
           <CreateIssueButton className="w-full" />
         </div>

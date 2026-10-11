@@ -17,10 +17,12 @@ import {
   ListOrdered,
   ListChecks,
   Minus,
+  Plus,
   Maximize,
   Minimize,
   Quote,
   RemoveFormatting,
+  SeparatorHorizontal,
   Strikethrough,
   Table as TableIcon,
   Type,
@@ -84,6 +86,39 @@ function isEmptyHtml(html: string) {
   return text.length === 0;
 }
 
+/** Tombol icon untuk strip formatting horizontal (klik kanan, mode tanpa toolbar). */
+function StripBtn({
+  title,
+  onClick,
+  active,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  active?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={onClick}
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+        active && "bg-accent text-accent-foreground"
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function StripSep() {
+  return <span className="mx-0.5 h-5 w-px shrink-0 bg-border" />;
+}
+
 /** Handle imperatif editor (dipakai dialog Note untuk ambil file gambar pending). */
 export type RichTextEditorHandle = {
   getPendingImages(): PendingNoteImages;
@@ -97,6 +132,9 @@ export function RichTextEditor({
   placeholder = "Write description…",
   height = 320,
   imageSupport = false,
+  toolbar = true,
+  autoHeight = false,
+  inlineBar = false,
   fullscreen: fullscreenProp = false,
   onFullscreenChange,
   ref: handleRef,
@@ -108,6 +146,12 @@ export function RichTextEditor({
   height?: number;
   /** Aktifkan dukungan gambar (hanya Note). Editor lain (Task/Issue) biarkan false. */
   imageSupport?: boolean;
+  /** Tampilkan toolbar atas. Notes inline pakai false (formatting via klik kanan). */
+  toolbar?: boolean;
+  /** Tinggi mengikuti isi (tanpa scroll dalam). Notes inline pakai true. */
+  autoHeight?: boolean;
+  /** Bar format statis di atas area tulis (dipakai bersama toolbar={false}). */
+  inlineBar?: boolean;
   /** Tampilkan tombol full page. Klik tombol memicu onFullscreenChange(true). */
   fullscreen?: boolean;
   /** Dipanggil saat tombol full page diklik (true) / ESC (false). */
@@ -144,12 +188,18 @@ export function RichTextEditor({
   const replaceTargetRef = useRef<string | null>(null);
   const wrapRef = useRef<HTMLDivElement | null>(null);
   const menuImageRef = useRef<HTMLElement | null>(null);
+  // Range seleksi yang disimpan saat fokus pindah ke input angka font size.
+  const savedRange = useRef<Range | null>(null);
   const imgResizeRef = useRef<{ id: string; startX: number; startW: number; maxW: number } | null>(null);
   const cropRevokeRef = useRef<string | null>(null);
   const [imageHover, setImageHover] = useState(false);
   const [selImageId, setSelImageId] = useState<string | null>(null);
   const [selRect, setSelRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
   const [cropState, setCropState] = useState<{ src: string; imageId: string; revoke: boolean } | null>(null);
+  // Strip formatting horizontal (mode toolbar=false): posisi klik kanan.
+  const [fmtMenu, setFmtMenu] = useState<{ x: number; y: number } | null>(null);
+  const [fontPx, setFontPx] = useState<number | null>(null);
+  const stripRef = useRef<HTMLDivElement | null>(null);
 
   useImperativeHandle(
     handleRef,
@@ -267,6 +317,7 @@ export function RichTextEditor({
         ol: document.queryCommandState("insertOrderedList"),
       });
     } catch {}
+    setFontPx(detectFontPx());
   };
 
   const exec = (cmd: string, val?: string) => {
@@ -278,6 +329,97 @@ export function RichTextEditor({
   };
 
   const setBlock = (tag: "p" | "h1" | "h2" | "h3" | "blockquote" | "pre") => exec("formatBlock", tag);
+
+  /** Ukuran font ala Word: execCommand hanya kenal 1–7, hasilnya diganti <span style>. */
+  const applyFontSize = (px: string) => {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    try {
+      document.execCommand("fontSize", false, "7");
+      el.querySelectorAll('font[size="7"]').forEach((f) => {
+        const span = document.createElement("span");
+        span.style.fontSize = px;
+        span.innerHTML = f.innerHTML;
+        f.replaceWith(span);
+      });
+    } catch {}
+    emit();
+  };
+
+  /** Baca ukuran font (px) di posisi caret: style inline dulu, lalu computed. */
+  const detectFontPx = (): number | null => {
+    const el = ref.current;
+    const sel = window.getSelection();
+    const node = sel?.anchorNode;
+    if (!el || !node || !el.contains(node)) return null;
+    let t: HTMLElement | null =
+      node.nodeType === Node.ELEMENT_NODE
+        ? (node as HTMLElement)
+        : node.parentElement;
+    while (t && el.contains(t)) {
+      const inline = t.style?.fontSize;
+      if (inline) {
+        const m = inline.match(/([\d.]+)px/);
+        if (m) return Math.round(parseFloat(m[1]));
+      }
+      if (t === el) break;
+      t = t.parentElement;
+    }
+    const host =
+      node.nodeType === Node.ELEMENT_NODE
+        ? (node as HTMLElement)
+        : node.parentElement;
+    if (host && el.contains(host)) {
+      const px = parseFloat(getComputedStyle(host).fontSize);
+      if (!Number.isNaN(px)) return Math.round(px);
+    }
+    return null;
+  };
+
+  /** Simpan range seleksi sebelum fokus pindah (mis. ke input angka font size). */
+  const saveSel = () => {
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0 && ref.current?.contains(sel.anchorNode)) {
+        savedRange.current = sel.getRangeAt(0).cloneRange();
+      }
+    } catch {}
+  };
+
+  /** Kembalikan seleksi yang disimpan (sebelum apply font dari input manual). */
+  const restoreSel = () => {
+    const el = ref.current;
+    const r = savedRange.current;
+    if (!el || !r) return;
+    try {
+      el.focus();
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(r);
+    } catch {}
+  };
+
+  /** Stepper − / + ukuran font. */
+  const stepFont = (delta: number) => {
+    const cur = detectFontPx() ?? 14;
+    const next = Math.min(200, Math.max(6, cur + delta));
+    applyFontSize(`${next}px`);
+    setFontPx(next);
+  };
+
+  /** Terapkan angka font yang diketik manual. */
+  const commitFont = (raw: string) => {
+    const n = Math.round(parseFloat(raw));
+    if (!Number.isFinite(n) || n <= 0) {
+      setFontPx(detectFontPx());
+      return;
+    }
+    const px = Math.min(200, Math.max(6, n));
+    restoreSel();
+    applyFontSize(`${px}px`);
+    setFontPx(px);
+  };
 
   const addLink = () => {
     const sel = window.getSelection();
@@ -1160,6 +1302,31 @@ export function RichTextEditor({
     exec(cmd);
   };
 
+  /* Strip formatting: tutup saat klik di luar, Escape, atau scroll. */
+  useEffect(() => {
+    if (!fmtMenu) return;
+    const onDown = (e: PointerEvent) => {
+      if (stripRef.current?.contains(e.target as Node)) return;
+      setFmtMenu(null);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setFmtMenu(null);
+      }
+    };
+    const onScroll = () => {
+      setFmtMenu(null);
+    };
+    document.addEventListener("pointerdown", onDown, true);
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("scroll", onScroll, true);
+    return () => {
+      document.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("scroll", onScroll, true);
+    };
+  }, [fmtMenu]);
+
   useEffect(() => {
     if (!selImageId) return;
     const pos = () => positionOverlay(selImageId);
@@ -1173,7 +1340,7 @@ export function RichTextEditor({
 
   const onTableContextMenu = (e: React.MouseEvent) => {
     // Mencatat sel/gambar + jenis menu; pembukaan menu ditangani ContextMenu shadcn.
-    // Di luar tabel & gambar: biarkan menu bawaan browser (trigger disabled).
+    // Mode toolbar: di luar tabel & gambar biarkan menu bawaan browser (trigger disabled).
     const t = e.target as Element;
     if (imageSupport) {
       const fig = t.closest?.("figure.rt-image") as HTMLElement | null;
@@ -1185,7 +1352,15 @@ export function RichTextEditor({
       }
     }
     const cell = t.closest?.("td, th") as HTMLTableCellElement | null;
-    if (!cell || !ref.current?.contains(cell)) return;
+    if (!cell || !ref.current?.contains(cell)) {
+      // Mode tanpa toolbar (Notes inline): klik kanan di teks biasa → strip icon horizontal.
+      if (toolbar === false) {
+        e.preventDefault();
+        refreshActive();
+        setFmtMenu({ x: e.clientX, y: e.clientY });
+      }
+      return;
+    }
     try {
       caretToCellStart(cell);
     } catch {}
@@ -1687,14 +1862,115 @@ export function RichTextEditor({
   const toolActive = "bg-accent text-accent-foreground";
   const menuKind = tableMenu?.kind ?? "all";
 
+  /** Baris tombol format — dipakai strip floating (klik kanan) & bar statis (inlineBar). */
+  const renderFormatRow = () => (
+    <>
+      <div className="flex shrink-0 items-center gap-0.5" role="group" aria-label="Font size">
+        <StripBtn title="Decrease font size" onClick={() => stepFont(-1)}>
+          <Minus className="h-4 w-4" />
+        </StripBtn>
+        <input
+          key={`fs-${fontPx ?? "na"}`}
+          defaultValue={fontPx ?? 14}
+          inputMode="numeric"
+          aria-label="Font size"
+          title="Font size (px)"
+          onMouseDown={saveSel}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+            if (e.key === "Escape") e.stopPropagation();
+          }}
+          onBlur={(e) => commitFont(e.target.value)}
+          className="h-8 w-10 rounded-md border border-transparent bg-transparent text-center text-xs outline-none hover:border-border focus:border-primary"
+        />
+        <StripBtn title="Increase font size" onClick={() => stepFont(1)}>
+          <Plus className="h-4 w-4" />
+        </StripBtn>
+      </div>
+      <StripSep />
+      <StripBtn title="Bold" onClick={() => exec("bold")} active={active.bold}>
+        <Bold className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Italic" onClick={() => exec("italic")} active={active.italic}>
+        <Italic className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Underline" onClick={() => exec("underline")} active={active.underline}>
+        <Underline className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Strikethrough" onClick={() => exec("strikeThrough")}>
+        <Strikethrough className="h-4 w-4" />
+      </StripBtn>
+      <StripSep />
+      <StripBtn title="Align left" onClick={() => runAlign("justifyLeft")}>
+        <AlignLeft className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Align center" onClick={() => runAlign("justifyCenter")}>
+        <AlignCenter className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Align right" onClick={() => runAlign("justifyRight")}>
+        <AlignRight className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Justify" onClick={() => runAlign("justifyFull")}>
+        <AlignJustify className="h-4 w-4" />
+      </StripBtn>
+      <StripSep />
+      <StripBtn title="Bullet list" onClick={() => exec("insertUnorderedList")} active={active.ul}>
+        <List className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Numbered list" onClick={() => exec("insertOrderedList")} active={active.ol}>
+        <ListOrdered className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn title="Checklist" onClick={insertChecklist}>
+        <ListChecks className="h-4 w-4" />
+      </StripBtn>
+      <StripSep />
+      <StripBtn title="Insert table" onClick={() => insertTable(3, 3)}>
+        <TableIcon className="h-4 w-4" />
+      </StripBtn>
+      {imageSupport && (
+        <StripBtn title="Insert image" onClick={() => fileInputRef.current?.click()}>
+          <ImagePlus className="h-4 w-4" />
+        </StripBtn>
+      )}
+      <StripSep />
+      <StripBtn title="Link" onClick={addLink}>
+        <Link2 className="h-4 w-4" />
+      </StripBtn>
+      <StripBtn
+        title="Mention"
+        onClick={() => {
+          ref.current?.focus();
+          try {
+            document.execCommand("insertText", false, "@");
+          } catch {}
+          emit();
+        }}
+      >
+        <AtSign className="h-4 w-4" />
+      </StripBtn>
+            <StripBtn title="Divider" onClick={insertDivider}>
+              <SeparatorHorizontal className="h-4 w-4" />
+            </StripBtn>
+      <StripBtn title="Clear format" onClick={clearFormat}>
+        <RemoveFormatting className="h-4 w-4" />
+      </StripBtn>
+    </>
+  );
+
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-lg border bg-background focus-within:ring-1 focus-within:ring-ring",
+        toolbar !== false &&
+          "overflow-hidden rounded-lg border bg-background focus-within:ring-1 focus-within:ring-ring",
+        toolbar === false && "min-w-0 bg-transparent",
         fullscreen && "fixed inset-0 z-[60] flex flex-col rounded-none border-0"
       )}
     >
-      {/* Toolbar */}
+      {/* Toolbar (disembunyikan bila toolbar={false} — formatting via klik kanan) */}
+      {toolbar !== false && (
       <div className={cn(
         "flex flex-wrap items-center gap-0.5 border-b bg-muted/40 p-1.5",
         fullscreen && "sticky top-0 z-10 bg-background"
@@ -1761,7 +2037,7 @@ export function RichTextEditor({
           <AtSign className="h-4 w-4" />
         </Button>
         <Button type="button" variant="ghost" size="icon" className={tool} title="Divider" onMouseDown={(e) => e.preventDefault()} onClick={insertDivider}>
-          <Minus className="h-4 w-4" />
+          <SeparatorHorizontal className="h-4 w-4" />
         </Button>
         <span className="mx-1 h-5 w-px bg-border" />
         <Button type="button" variant="ghost" size="icon" className={tool} title="Insert table (3×3)" onMouseDown={(e) => e.preventDefault()} onClick={() => insertTable(3, 3)}>
@@ -1789,6 +2065,14 @@ export function RichTextEditor({
           <RemoveFormatting className="h-4 w-4" />
         </Button>
       </div>
+      )}
+
+      {/* Bar format statis di atas area tulis (mode toolbar=false + inlineBar) */}
+      {toolbar === false && inlineBar && (
+        <div className="relative mx-auto flex w-fit max-w-full items-center gap-0.5 overflow-x-auto rounded-lg border bg-muted/50 p-1 shadow-sm [justify-content:safe_center]">
+          {renderFormatRow()}
+        </div>
+      )}
 
       {/* Area tulis */}
       <div ref={wrapRef} className={cn("relative", fullscreen && "flex-1 overflow-hidden")}>
@@ -1819,8 +2103,8 @@ export function RichTextEditor({
           onPaste={onPaste}
           onMouseUp={refreshActive}
           onBlur={() => setTimeout(() => setMention(null), 150)}
-          className={cn("rich-content rt-editor overflow-y-auto px-3 py-2 text-sm outline-none", fullscreen && "h-full")}
-          style={{ height: fullscreen ? undefined : height }}
+          className={cn("rich-content rt-editor overflow-y-auto py-2 text-sm outline-none", toolbar !== false ? "px-3" : "px-0", fullscreen && "h-full")}
+          style={fullscreen ? undefined : autoHeight ? { minHeight: height } : { height }}
         />
           </ContextMenuTrigger>
         {mention && mentionList.length > 0 && (
@@ -1947,6 +2231,22 @@ export function RichTextEditor({
           )}
         </ContextMenuContent>
         </ContextMenu>
+        {/* Strip formatting icon horizontal (mode toolbar=false, muncul saat klik kanan) */}
+        {toolbar === false && fmtMenu && (
+          <div
+            ref={stripRef}
+            role="toolbar"
+            aria-label="Formatting"
+            className="fixed z-[70] flex max-w-[calc(100vw-1rem)] items-center gap-0.5 overflow-x-auto rounded-lg border bg-popover p-1 shadow-lg"
+            style={{
+              left: Math.max(8, Math.min(fmtMenu.x - 200, window.innerWidth - 440)),
+              // Selalu muncul di atas posisi klik
+              top: Math.max(8, fmtMenu.y - 58),
+            }}
+          >
+            {renderFormatRow()}
+          </div>
+        )}
         {imageSupport && selImageId && selRect && (
           <div
             data-rt-img-overlay

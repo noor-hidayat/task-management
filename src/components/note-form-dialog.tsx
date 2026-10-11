@@ -15,10 +15,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { RichTextEditor, isEmptyHtml, type RichTextEditorHandle } from "@/components/rich-text-editor";
 import { emptyPendingNoteImages, type PendingNoteImages } from "@/lib/api/noteImages";
 import { useIssues, useUsers, useWorks } from "@/hooks/useSupabaseLists";
-import { cn } from "@/lib/utils";
 import type { NoteRelatedType } from "@/types";
-
-const NOTE_CATEGORIES = ["personal", "working"] as const;
 
 export type NoteRelationDraft = {
   relatedType: NoteRelatedType;
@@ -78,19 +75,6 @@ export function NoteFormDialog({
     setSaving(false);
     editorRef.current?.resetPendingImages();
   }, [open ]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const category = useMemo(
-    () => tags.find((t) => (NOTE_CATEGORIES as readonly string[]).includes(t)) ?? null,
-    [tags]
-  );
-
-  const setCategory = (c: string | null) => {
-    setTags((prev) => {
-      const rest = prev.filter((t) => !(NOTE_CATEGORIES as readonly string[]).includes(t));
-      if (!c) return rest;
-      return [c, ...rest];
-    });
-  };
 
   const addedKeys = useMemo(
     () => new Set(relations.map((r) => `${r.relatedType}:${r.relatedId}`)),
@@ -190,31 +174,8 @@ export function NoteFormDialog({
               />
             </div>
           </div>
-          {/* Kanan: Category + Related */}
+          {/* Kanan: Related */}
           <div className="grid content-start gap-4 md:border-l md:pl-4">
-            <div className="grid gap-2">
-              <Label>Category</Label>
-              <div className="flex gap-1.5">
-                {(NOTE_CATEGORIES as readonly string[]).map((c) => {
-                  const active = category === c;
-                  return (
-                    <button
-                      key={c}
-                      type="button"
-                      onClick={() => setCategory(active ? null : c)}
-                      className={cn(
-                        "rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors",
-                        active
-                          ? "border-primary bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-accent hover:text-foreground"
-                      )}
-                    >
-                      {c}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
             <div className="grid gap-2">
               <Label>
                 Related

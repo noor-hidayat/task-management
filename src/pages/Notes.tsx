@@ -3,9 +3,11 @@ import { Link, useSearchParams } from "react-router-dom";
 import {
   AlignLeft,
   ArrowLeft,
+  Calendar,
   CircleDot,
   FileText,
   Globe,
+  Home,
   ListChecks,
   Lock,
   MessageSquare,
@@ -17,6 +19,7 @@ import {
   SendHorizontal,
   Share2,
   Trash2,
+  User,
   Users,
   X,
 } from "lucide-react";
@@ -49,14 +52,13 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
-import { RichTextView, extractMentions, sanitizeRichHtml } from "@/components/rich-text-editor";
-import { NoteFormDialog, type NoteFormValues } from "@/components/note-form-dialog";
+import { RichTextEditor, RichTextView, extractMentions, isEmptyHtml, sanitizeRichHtml, type RichTextEditorHandle } from "@/components/rich-text-editor";
+import { useIssues, useUsers, useWorks } from "@/hooks/useSupabaseLists";
 import { PageSkeleton } from "@/components/page-skeleton";
 import { avatarColor, initials, stripHtml } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/contexts/AuthContext";
 import { useNotes } from "@/hooks/useNotes";
-import { useUsers } from "@/hooks/useSupabaseLists";
 import {
   addNoteComment,
   addNoteRelation,
@@ -85,21 +87,23 @@ import type { Comment, Note, NotePermission, NoteRelatedType, NoteVisibility } f
 
 type ListFilter = "all" | "mine" | "shared";
 
+type NoteRelationDraft = {
+  relatedType: NoteRelatedType;
+  relatedId: string;
+  relatedNumber?: string;
+  relatedTitle?: string;
+};
+
 function previewOf(note: Note): string {
   const plain = stripHtml(note.content || "");
   return plain.slice(0, 120);
 }
 
-const NOTE_CATEGORIES = ["personal", "working"] as const;
+/** Tag personal/working sudah dihapus — disembunyikan dari tampilan & dibuang saat simpan. */
+const REMOVED_NOTE_TAGS = ["personal", "working"] as const;
 
-/** Kategori = tag khusus personal/working. Return lowercase atau null. */
-function categoryOf(note: Note): string | null {
-  const found = note.tags.find((t) => NOTE_CATEGORIES.includes(t.toLowerCase() as (typeof NOTE_CATEGORIES)[number]));
-  return found ? found.toLowerCase() : null;
-}
-
-function capitalize(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
+function visibleTags(tags: string[]): string[] {
+  return tags.filter((t) => !(REMOVED_NOTE_TAGS as readonly string[]).includes(t.toLowerCase()));
 }
 
 /* ── Share dialog (owner only): visibility Public/Private + per-user permission ── */
@@ -359,6 +363,8 @@ export function Notes() {
   const { user: currentUser } = useAuth();
   const { data: notes, loading, error, reload } = useNotes();
   const { data: users } = useUsers();
+  const { data: works } = useWorks();
+  const { data: issues } = useIssues();
   const [searchParams] = useSearchParams();
 
   const [filter, setFilter] = useState<ListFilter>("all");
@@ -367,8 +373,16 @@ export function Notes() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
-  const [createOpen, setCreateOpen] = useState(false);
-  const [editOpen, setEditOpen] = useState(false);
+  // Mode inline: view | create (note baru) | edit (note terpilih)
+  const [mode, setMode] = useState<"view" | "create" | "edit">("view");
+  const [draftTitle, setDraftTitle] = useState("");
+  const [draftContent, setDraftContent] = useState("");
+  const [draftRelations, setDraftRelations] = useState<NoteRelationDraft[]>([]);
+  const [draftSaving, setDraftSaving] = useState(false);
+  const [relTab, setRelTab] = useState<NoteRelatedType>("task");
+  const [relQuery, setRelQuery] = useState("");
+  const [relPickerOpen, setRelPickerOpen] = useState(false);
+  const editorRef = useRef<RichTextEditorHandle | null>(null);
 
   // Komentar note
   const [comments, setComments] = useState<Comment[]>([]);
@@ -385,7 +399,7 @@ export function Notes() {
         if (filter === "shared" && n.isOwner) return false;
         if (tagFilter && !n.tags.includes(tagFilter)) return false;
         if (!q) return true;
-        const hay = `${n.title}\n${stripHtml(n.content)}\n${n.tags.join(" ")}\n${n.ownerName}`.toLowerCase();
+        const hay = `${n.title}\n${stripHtml(n.content)}\n${visibleTags(n.tags).join(" ")}\n${n.ownerName}`.toLowerCase();
         return hay.includes(q);
       })
       .sort((a, b) => +new Date(b.rawUpdatedAt) - +new Date(a.rawUpdatedAt));
@@ -393,7 +407,7 @@ export function Notes() {
 
   const allTags = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const n of notes) for (const t of n.tags) counts.set(t, (counts.get(t) ?? 0) + 1);
+    for (const n of notes) for (const t of visibleTags(n.tags)) counts.set(t, (counts.get(t) ?? 0) + 1);
     return [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 20);
   }, [notes]);
 
@@ -514,82 +528,193 @@ export function Notes() {
     setComments(c);
   };
 
-  const handleCreate = () => {
-    setCreateOpen(true);
+  const isEditing = mode === "create" || (mode === "edit" && !!selected);
+
+  const startCreate = () => {
+    setDraftTitle("");
+    setDraftContent("");
+    setDraftRelations([]);
+    setRelTab("task");
+    setRelQuery("");
+    setRelPickerOpen(false);
+    setDraftSaving(false);
+    editorRef.current?.resetPendingImages();
+    setSelectedId(null);
+    setMode("create");
   };
 
-  const handleCreateSubmit = async (v: NoteFormValues) => {
-    if (!currentUser) return;
-    const images: PendingNoteImages = v.images ?? emptyPendingNoteImages();
-    const note = await createNote({
-      title: v.title,
-      content: v.content,
-      tags: v.tags,
-      ownerId: currentUser.id,
-      ownerName: currentUser.name,
-    });
-    // Upload semua gambar ke path asli noteId, lalu simpan HTML final (storage key).
-    const content = await persistNoteImages(note.content, images, {
-      userId: currentUser.id,
-      noteId: note.id,
-    });
-    await updateNote(note.id, { content });
-    for (const r of v.relations) {
-      await addNoteRelation(note.id, r.relatedType, r.relatedId);
-    }
-    reload();
-    setFilter("all");
-    setQuery("");
-    setTagFilter(null);
-    setSelectedId(note.id);
+  const startEdit = () => {
+    if (!selected) return;
+    setDraftTitle(selected.title);
+    setDraftContent(selected.content);
+    setDraftRelations(
+      selected.relations.map((r) => ({
+        relatedType: r.relatedType,
+        relatedId: r.relatedId,
+        relatedNumber: r.relatedNumber,
+        relatedTitle: r.relatedTitle,
+      }))
+    );
+    setRelTab("task");
+    setRelQuery("");
+    setRelPickerOpen(false);
+    setDraftSaving(false);
+    editorRef.current?.resetPendingImages();
+    setMode("edit");
   };
 
-  const handleEditSubmit = async (v: NoteFormValues) => {
-    if (!selected || !selected.isOwner) return;
-    const images: PendingNoteImages = v.images ?? emptyPendingNoteImages();
-    const content = await persistNoteImages(v.content, images, {
-      userId: selected.ownerId,
-      noteId: selected.id,
-    });
-    await updateNote(selected.id, {
-      title: v.title,
-      content,
-      tags: v.tags,
-    });
-    // Sinkronkan relasi: tambah yang baru, hapus yang dibuang di pop-up.
-    const prevKeys = new Set(
-      selected.relations.map((r) => `${r.relatedType}:${r.relatedId}`)
-    );
-    const nextKeys = new Set(
-      v.relations.map((r) => `${r.relatedType}:${r.relatedId}`)
-    );
-    for (const r of v.relations) {
-      if (!prevKeys.has(`${r.relatedType}:${r.relatedId}`)) {
-        await addNoteRelation(selected.id, r.relatedType, r.relatedId);
-      }
+  const cancelEdit = () => {
+    setMode("view");
+    setDraftSaving(false);
+    setRelPickerOpen(false);
+    editorRef.current?.resetPendingImages();
+  };
+
+  const draftAddedKeys = useMemo(
+    () => new Set(draftRelations.map((r) => `${r.relatedType}:${r.relatedId}`)),
+    [draftRelations]
+  );
+
+  const relResults = useMemo(() => {
+    const q = relQuery.trim().toLowerCase();
+    if (relTab === "task") {
+      return works
+        .filter((w) => !draftAddedKeys.has(`task:${w.id}`))
+        .filter(
+          (w) =>
+            !q ||
+            w.title.toLowerCase().includes(q) ||
+            w.number.toLowerCase().includes(q)
+        )
+        .slice(0, 6);
     }
-    for (const r of selected.relations) {
-      if (!nextKeys.has(`${r.relatedType}:${r.relatedId}`)) {
-        await removeNoteRelationByTarget(selected.id, r.relatedType, r.relatedId);
-      }
+    return issues
+      .filter((i) => !draftAddedKeys.has(`issue:${i.id}`))
+      .filter(
+        (i) =>
+          !q || i.title.toLowerCase().includes(q) || i.number.toLowerCase().includes(q)
+      )
+      .slice(0, 6);
+  }, [relTab, relQuery, works, issues, draftAddedKeys]);
+
+  const addDraftRelation = (type: NoteRelatedType, id: string) => {
+    if (draftAddedKeys.has(`${type}:${id}`)) return;
+    if (type === "task") {
+      const w = works.find((x) => x.id === id);
+      if (!w) return;
+      setDraftRelations((prev) => [
+        ...prev,
+        { relatedType: type, relatedId: id, relatedNumber: w.number, relatedTitle: w.title },
+      ]);
+    } else {
+      const i = issues.find((x) => x.id === id);
+      if (!i) return;
+      setDraftRelations((prev) => [
+        ...prev,
+        { relatedType: type, relatedId: id, relatedNumber: i.number, relatedTitle: i.title },
+      ]);
     }
-    // Hapus file storage gambar yang dibuang
-    await finalizeNoteImageDeletions(images.removedPaths);
-    // Mention notifications (best effort, future behavior hook)
+  };
+
+  const removeDraftRelation = (type: NoteRelatedType, id: string) => {
+    setDraftRelations((prev) =>
+      prev.filter((x) => !(x.relatedType === type && x.relatedId === id))
+    );
+  };
+
+  const canSaveDraft = draftTitle.trim().length > 0 || !isEmptyHtml(draftContent);
+
+  const saveDraft = async () => {
+    if (!currentUser || draftSaving || !canSaveDraft) return;
+    setDraftSaving(true);
     try {
-      await notifyMentions({
-        content: v.content,
-        users,
-        fromId: currentUser?.id ?? null,
-        fromName: currentUser?.name,
-        title: "You were mentioned in a note",
-        message: (v.title || "Note").slice(0, 80),
-        link: "/notes",
-      });
-    } catch {
-      /* abaikan */
+      const images: PendingNoteImages =
+        editorRef.current?.getPendingImages() ?? emptyPendingNoteImages();
+      if (mode === "create") {
+        const note = await createNote({
+          title: draftTitle.trim() || "Untitled note",
+          content: draftContent,
+          tags: [],
+          ownerId: currentUser.id,
+          ownerName: currentUser.name,
+        });
+        // Upload semua gambar ke path asli noteId, lalu simpan HTML final (storage key).
+        const content = await persistNoteImages(note.content, images, {
+          userId: currentUser.id,
+          noteId: note.id,
+        });
+        await updateNote(note.id, { content });
+        for (const r of draftRelations) {
+          await addNoteRelation(note.id, r.relatedType, r.relatedId);
+        }
+        try {
+          await notifyMentions({
+            content: draftContent,
+            users,
+            fromId: currentUser.id,
+            fromName: currentUser.name,
+            title: "You were mentioned in a note",
+            message: (draftTitle.trim() || "Note").slice(0, 80),
+            link: `/notes?note=${note.id}`,
+          });
+        } catch {
+          /* abaikan — note tetap tersimpan */
+        }
+        reload();
+        setFilter("all");
+        setQuery("");
+        setTagFilter(null);
+        setSelectedId(note.id);
+        setMode("view");
+      } else if (mode === "edit" && selected && selected.isOwner) {
+        const content = await persistNoteImages(draftContent, images, {
+          userId: selected.ownerId,
+          noteId: selected.id,
+        });
+        await updateNote(selected.id, {
+          title: draftTitle.trim() || "Untitled note",
+          content,
+          tags: visibleTags(selected.tags),
+        });
+        // Sinkronkan relasi: tambah yang baru, hapus yang dibuang.
+        const prevKeys = new Set(
+          selected.relations.map((r) => `${r.relatedType}:${r.relatedId}`)
+        );
+        const nextKeys = new Set(
+          draftRelations.map((r) => `${r.relatedType}:${r.relatedId}`)
+        );
+        for (const r of draftRelations) {
+          if (!prevKeys.has(`${r.relatedType}:${r.relatedId}`)) {
+            await addNoteRelation(selected.id, r.relatedType, r.relatedId);
+          }
+        }
+        for (const r of selected.relations) {
+          if (!nextKeys.has(`${r.relatedType}:${r.relatedId}`)) {
+            await removeNoteRelationByTarget(selected.id, r.relatedType, r.relatedId);
+          }
+        }
+        // Hapus file storage gambar yang dibuang
+        await finalizeNoteImageDeletions(images.removedPaths);
+        // Mention notifications (best effort, future behavior hook)
+        try {
+          await notifyMentions({
+            content: draftContent,
+            users,
+            fromId: currentUser?.id ?? null,
+            fromName: currentUser?.name,
+            title: "You were mentioned in a note",
+            message: (draftTitle.trim() || "Note").slice(0, 80),
+            link: "/notes",
+          });
+        } catch {
+          /* abaikan */
+        }
+        reload();
+        setMode("view");
+      }
+    } finally {
+      setDraftSaving(false);
     }
-    reload();
   };
 
   const handleDelete = async () => {
@@ -604,33 +729,238 @@ export function Notes() {
 
   if (loading) return <PageSkeleton />;
 
-  const listPane = (
-    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
-      <div className="flex items-center gap-2">
-        <div className="relative flex-1">
-          <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search notes..."
-            className="pl-9"
-            autoComplete="off"
-          />
+  /* ── Pane editor inline (create / edit): judul + editor + related + Save ── */
+  const editPane = (
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
+      <div className="space-y-1.5">
+        <div className="flex items-start justify-between gap-2">
+          <div className="flex min-w-0 flex-1 items-start gap-2">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 shrink-0 lg:hidden"
+              onClick={cancelEdit}
+              aria-label="Back to notes list"
+            >
+              <ArrowLeft className="h-4 w-4" />
+            </Button>
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-x-2">
+                <Link
+                  to="/"
+                  aria-label="Home"
+                  className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  <Home className="h-4 w-4" />
+                </Link>
+                <span className="shrink-0 text-sm text-muted-foreground/50">/</span>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="shrink-0 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                >
+                  Notes
+                </button>
+                <span className="shrink-0 text-sm text-muted-foreground/50">/</span>
+                <span className="min-w-0 flex-1 text-sm font-medium break-words">
+                  {draftTitle || "Untitled note"}
+                </span>
+              </div>
+              <Input
+                value={draftTitle}
+                onChange={(e) => setDraftTitle(e.target.value)}
+                placeholder="Note title..."
+                autoComplete="off"
+                aria-label="Note title"
+                className="mt-1 border-transparent bg-transparent px-0 text-xl font-bold shadow-none focus-visible:border-input md:text-2xl"
+              />
+            </div>
+          </div>
+          {/* Mode edit: tombol Save (ganti Share) + Cancel, tanpa tombol ... */}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Button variant="outline" size="sm" onClick={cancelEdit}>
+              Cancel
+            </Button>
+            <Button size="sm" disabled={!canSaveDraft || draftSaving} onClick={() => void saveDraft()}>
+              <span className="hidden sm:inline">
+                {draftSaving ? "Saving..." : mode === "create" ? "Save" : "Update"}
+              </span>
+            </Button>
+          </div>
         </div>
-        <Button onClick={handleCreate} disabled={!currentUser} size="sm" className="shrink-0">
-          <Plus className="h-4 w-4" />
-          <span className="hidden sm:inline">New Note</span>
-          <span className="sm:hidden">New</span>
-        </Button>
+        <hr className="border-border" />
       </div>
 
-      <Tabs value={filter} onValueChange={(v) => setFilter(v as ListFilter)}>
-        <TabsList className="grid w-full grid-cols-3">
-          <TabsTrigger value="all">All</TabsTrigger>
-          <TabsTrigger value="mine">My Notes{counts.mine > 0 ? ` (${counts.mine})` : ""}</TabsTrigger>
-          <TabsTrigger value="shared">Shared{counts.shared > 0 ? ` (${counts.shared})` : ""}</TabsTrigger>
-        </TabsList>
-      </Tabs>
+      {/* Content — formatting via klik kanan, tanpa toolbar */}
+      <div className="-mt-2">
+        <RichTextEditor
+          ref={editorRef}
+          value={draftContent}
+          onChange={setDraftContent}
+          users={users.map((u) => u.name)}
+          placeholder="Write something... Right-click for formatting. Use @ to mention, insert tables and images..."
+          height={320}
+          imageSupport
+          toolbar={false}
+          autoHeight
+          inlineBar
+        />
+      </div>
+
+      {/* Pembatas area isi note */}
+      <hr className="border-border" />
+
+      {/* Related Tasks / Issues — posisi sama seperti view */}
+      <section className="space-y-2">
+        <div className="flex items-center gap-2">
+          <FileText className="h-4 w-4 text-muted-foreground" />
+          <h3 className="text-sm font-semibold">Related</h3>
+          {draftRelations.length > 0 && (
+            <Badge variant="secondary" className="font-normal">
+              {draftRelations.length}
+            </Badge>
+          )}
+        </div>
+        {draftRelations.length > 0 && (
+          <ul className="space-y-1.5">
+            {draftRelations.map((r) => (
+              <li
+                key={`${r.relatedType}:${r.relatedId}`}
+                className="flex items-center gap-2 rounded-lg border px-3 py-2 text-sm"
+              >
+                {r.relatedType === "task" ? (
+                  <ListChecks className="h-4 w-4 shrink-0 text-muted-foreground" />
+                ) : (
+                  <CircleDot className="h-4 w-4 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate font-medium">
+                    {r.relatedTitle ?? r.relatedId}
+                  </span>
+                  {r.relatedNumber && (
+                    <span className="block font-mono text-xs text-muted-foreground">
+                      {r.relatedType === "task" ? "TASK" : "ISS"} — {r.relatedNumber}
+                    </span>
+                  )}
+                </span>
+                <button
+                  type="button"
+                  aria-label="Remove relation"
+                  onClick={() => removeDraftRelation(r.relatedType, r.relatedId)}
+                  className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {relPickerOpen || draftRelations.length === 0 ? (
+          <div className="space-y-2">
+            <Tabs value={relTab} onValueChange={(v) => setRelTab(v as NoteRelatedType)}>
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="task">Task</TabsTrigger>
+                <TabsTrigger value="issue">Issue</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            <div className="relative">
+              <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={relQuery}
+                onChange={(e) => setRelQuery(e.target.value)}
+                placeholder={relTab === "task" ? "Search tasks..." : "Search issues..."}
+                className="pl-9"
+                autoComplete="off"
+              />
+            </div>
+            <ul className="max-h-44 space-y-1 overflow-y-auto">
+              {relResults.map((r) =>
+                relTab === "task" ? (
+                  <li key={r.id}>
+                    <button
+                      type="button"
+                      onClick={() => addDraftRelation("task", r.id)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+                    >
+                      <ListChecks className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{r.title}</span>
+                        <span className="block font-mono text-[10px] text-muted-foreground">
+                          {r.number}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                ) : (
+                  <li key={(r as { id: string }).id}>
+                    <button
+                      type="button"
+                      onClick={() => addDraftRelation("issue", (r as { id: string }).id)}
+                      className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-accent"
+                    >
+                      <CircleDot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">
+                          {(r as { title: string }).title}
+                        </span>
+                        <span className="block font-mono text-[10px] text-muted-foreground">
+                          {(r as { number: string }).number}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              )}
+              {relResults.length === 0 && (
+                <li className="px-2 py-4 text-center text-xs text-muted-foreground">
+                  No {relTab === "task" ? "tasks" : "issues"} found.
+                </li>
+              )}
+            </ul>
+          </div>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setRelPickerOpen(true)}>
+            <Plus className="h-4 w-4" /> Add
+          </Button>
+        )}
+      </section>
+    </div>
+  );
+
+  const listPane = (
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-hidden">
+      <h2 className="text-lg font-semibold tracking-tight">Notes</h2>
+      {/* Sejajar dengan kartu list (inset kanan sama seperti area scroll) */}
+      <div className="overflow-hidden pr-2 [scrollbar-gutter:stable]">
+        <div className="flex items-center gap-2">
+          <div className="relative flex-1">
+            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search notes..."
+              className="pl-9"
+              autoComplete="off"
+            />
+          </div>
+          <Button onClick={startCreate} disabled={!currentUser} size="sm" className="shrink-0">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">New Note</span>
+            <span className="sm:hidden">New</span>
+          </Button>
+        </div>
+      </div>
+
+      {/* Sejajar dengan kartu list (inset kanan sama seperti area scroll) */}
+      <div className="overflow-hidden pr-2 [scrollbar-gutter:stable]">
+        <Tabs value={filter} onValueChange={(v) => setFilter(v as ListFilter)}>
+          <TabsList className="grid w-full grid-cols-3">
+            <TabsTrigger value="all">All</TabsTrigger>
+            <TabsTrigger value="mine">My Notes{counts.mine > 0 ? ` (${counts.mine})` : ""}</TabsTrigger>
+            <TabsTrigger value="shared">Shared{counts.shared > 0 ? ` (${counts.shared})` : ""}</TabsTrigger>
+          </TabsList>
+        </Tabs>
+      </div>
 
       {allTags.length > 0 && (
         <div className="flex flex-wrap gap-1.5">
@@ -668,7 +998,7 @@ export function Notes() {
         </p>
       )}
 
-      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pb-2">
+      <div className="scrollbar-thin min-h-0 flex-1 space-y-2 overflow-y-auto pr-2 pb-2 [scrollbar-gutter:stable]">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed px-4 py-10 text-center">
             <NotebookPen className="h-8 w-8 text-muted-foreground/50" />
@@ -677,7 +1007,7 @@ export function Notes() {
               {query || tagFilter ? "Try a different search or tag." : "Create your first private note."}
             </p>
             {!query && !tagFilter && (
-              <Button variant="outline" size="sm" onClick={handleCreate}>
+              <Button variant="outline" size="sm" onClick={startCreate}>
                 <Plus className="h-4 w-4" /> New Note
               </Button>
             )}
@@ -685,11 +1015,15 @@ export function Notes() {
         ) : (
           filtered.map((n) => {
             const active = n.id === selectedId;
+            const vt = visibleTags(n.tags);
             return (
               <button
                 key={n.id}
                 type="button"
-                onClick={() => setSelectedId(n.id)}
+                onClick={() => {
+                  if (isEditing) cancelEdit();
+                  setSelectedId(n.id);
+                }}
                 className={cn(
                   "group w-full rounded-xl border p-3 text-left transition-colors",
                   active
@@ -719,20 +1053,23 @@ export function Notes() {
                     {previewOf(n)}
                   </p>
                 )}
-                {n.tags.length > 0 && (
+                {vt.length > 0 && (
                   <div className="mt-1.5 flex flex-wrap gap-1">
-                    {n.tags.slice(0, 4).map((t) => (
+                    {vt.slice(0, 4).map((t) => (
                       <span key={t} className="rounded bg-muted px-1.5 py-px text-[10px] text-muted-foreground">
                         #{t}
                       </span>
                     ))}
-                    {n.tags.length > 4 && (
-                      <span className="text-[10px] text-muted-foreground">+{n.tags.length - 4}</span>
+                    {vt.length > 4 && (
+                      <span className="text-[10px] text-muted-foreground">+{vt.length - 4}</span>
                     )}
                   </div>
                 )}
                 <div className="mt-1.5 flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
-                  <span className="truncate">{n.isOwner ? "You" : n.ownerName}</span>
+                  <span className="inline-flex min-w-0 items-center gap-1">
+                    <User className="h-3 w-3 shrink-0" />
+                    <span className="truncate">{n.isOwner ? "You" : n.ownerName}</span>
+                  </span>
                   <span className="shrink-0">{n.updatedAt}</span>
                 </div>
               </button>
@@ -745,10 +1082,9 @@ export function Notes() {
 
   const detailPane = selected ? (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-      {/* Header: [Category / Title (H2)]                    [Share] [...] */}
+      {/* Header: [Home / Notes / Title]                        [Share] [...] */}
       {/*         [Author • datetime]                                         */}
       {(() => {
-        const category = categoryOf(selected);
         return (
           <div className="space-y-1.5">
             <div className="flex items-start justify-between gap-2">
@@ -763,34 +1099,42 @@ export function Notes() {
                   <ArrowLeft className="h-4 w-4" />
                 </Button>
                 <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-baseline gap-x-2">
-                    {category && (
-                      <>
-                        <span className="shrink-0 text-sm font-medium text-muted-foreground capitalize">
-                          # {capitalize(category)}
-                        </span>
-                        <span className="shrink-0 text-sm text-muted-foreground/50">/</span>
-                      </>
-                    )}
+                  <div className="flex flex-wrap items-center gap-x-2">
+                    <Link
+                      to="/"
+                      aria-label="Home"
+                      className="shrink-0 text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <Home className="h-4 w-4" />
+                    </Link>
+                    <span className="shrink-0 text-sm text-muted-foreground/50">/</span>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(null)}
+                      className="shrink-0 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      Notes
+                    </button>
+                    <span className="shrink-0 text-sm text-muted-foreground/50">/</span>
                     <span className="min-w-0 flex-1 text-sm font-medium break-words">
                       {selected.title || "Untitled note"}
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+                  <h2 className="mt-1 text-xl font-bold break-words md:text-2xl">
+                    {selected.title || "Untitled note"}
+                  </h2>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
                     <span className="inline-flex items-center gap-1.5">
-                      <Avatar className="h-5 w-5">
-                        <AvatarFallback
-                          className={cn("text-[8px]", avatarColor(selected.ownerName))}
-                        >
-                          {initials(selected.ownerName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <span className="font-medium text-foreground/80">
+                      <span className="inline-flex items-center gap-1 font-medium text-foreground/80">
+                        <User className="h-3.5 w-3.5 text-muted-foreground" />
                         {selected.isOwner ? "You" : selected.ownerName}
                       </span>
                     </span>
                     <span aria-hidden>•</span>
-                    <span>{selected.updatedAt}</span>
+                    <span className="inline-flex items-center gap-1">
+                      <Calendar className="h-3.5 w-3.5 text-muted-foreground" />
+                      <span>{selected.updatedAt}</span>
+                    </span>
                     <span
                       className={cn(
                         "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-medium",
@@ -820,9 +1164,6 @@ export function Notes() {
                       </span>
                     )}
                   </div>
-                  <h2 className="mt-2 text-xl font-bold break-words md:text-2xl">
-                    {selected.title || "Untitled note"}
-                  </h2>
                 </div>
               </div>
               {(selected.isOwner || selected.canEdit) && (
@@ -840,7 +1181,7 @@ export function Notes() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => setEditOpen(true)}>
+                      <DropdownMenuItem onClick={startEdit}>
                         <Pencil className="h-4 w-4" /> Edit
                       </DropdownMenuItem>
                       {selected.isOwner && (
@@ -882,7 +1223,13 @@ export function Notes() {
           )}
         </div>
         {selected.relations.length === 0 ? (
-          <p className="text-xs text-muted-foreground">No related Tasks or Issues yet.</p>
+          selected.isOwner || selected.canEdit ? (
+            <Button variant="outline" size="sm" onClick={startEdit}>
+              <Plus className="h-4 w-4" /> Add
+            </Button>
+          ) : (
+            <p className="text-xs text-muted-foreground">No related Tasks or Issues yet.</p>
+          )
         ) : (
           <div className="space-y-3">
             {(["task", "issue"] as NoteRelatedType[]).map((kind) => {
@@ -1019,55 +1366,32 @@ export function Notes() {
       <p className="max-w-xs text-xs text-muted-foreground">
         Notes are private by default. Share them explicitly when you need others to read.
       </p>
-      <Button variant="outline" size="sm" onClick={handleCreate}>
+      <Button variant="outline" size="sm" onClick={startCreate}>
         <Plus className="h-4 w-4" /> New Note
       </Button>
     </div>
   );
 
+  const showDetail = !!selectedId || mode !== "view";
+
   return (
-    <div className="flex min-w-0 flex-col gap-4 lg:h-[calc(100svh-5.5rem)] lg:flex-row lg:overflow-hidden">
+    <div className="flex min-w-0 flex-col gap-4 lg:-mt-4 lg:h-[calc(100svh-4.5rem)] lg:flex-row lg:gap-1 lg:overflow-hidden">
       {/* Mobile: list-first — show list OR detail */}
-      <div className={cn("lg:hidden", selectedId ? "hidden" : "flex flex-col")}>{!selectedId && listPane}</div>
-      <div className={cn("min-h-0 flex-1 lg:hidden", selectedId ? "block" : "hidden")}>
-        {selectedId && detailPane}
+      <div className={cn("lg:hidden", showDetail ? "hidden" : "flex flex-col")}>{!showDetail && listPane}</div>
+      <div className={cn("min-h-0 flex-1 lg:hidden", showDetail ? "block" : "hidden")}>
+        {showDetail && (isEditing ? editPane : detailPane)}
       </div>
       {/* Desktop: side by side */}
-      <div className="hidden min-h-0 min-w-0 lg:flex lg:w-[340px] lg:shrink-0 lg:flex-col lg:overflow-y-auto lg:pr-1">
+      <div className="hidden min-h-0 min-w-0 lg:flex lg:w-[340px] lg:shrink-0 lg:flex-col lg:overflow-y-auto">
         {listPane}
       </div>
-      <div className="hidden min-h-0 min-w-0 flex-1 lg:block lg:overflow-y-auto lg:rounded-xl lg:border lg:p-5">
-        {detailPane}
+      {/* Garis vertikal pemisah list & isi note */}
+      <div aria-hidden className="hidden w-px shrink-0 self-stretch bg-border lg:block" />
+      <div className="hidden min-h-0 min-w-0 flex-1 lg:block lg:overflow-y-auto lg:p-5">
+        {isEditing ? editPane : detailPane}
       </div>
 
       <ShareDialog note={selected} open={shareOpen} onOpenChange={setShareOpen} onChanged={reload} />
-
-      {/* New Note — pop-up */}
-      <NoteFormDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        dialogTitle="New Note"
-        submitLabel="Create"
-        onSubmit={handleCreateSubmit}
-      />
-
-      {/* Edit Note — pop-up (owner only) */}
-      <NoteFormDialog
-        open={editOpen}
-        onOpenChange={setEditOpen}
-        dialogTitle="Edit Note"
-        initial={
-          selected
-            ? {
-                title: selected.title,
-                content: selected.content,
-                tags: selected.tags,
-                relations: selected.relations,
-              }
-            : undefined
-        }
-        onSubmit={handleEditSubmit}
-      />
 
       <Dialog open={deleteOpen} onOpenChange={setDeleteOpen}>
         <DialogContent className="max-w-md">

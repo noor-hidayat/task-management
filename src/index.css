@@ -333,6 +333,26 @@
   display: none;
 }
 
+/* Thin scrollbar (tetap terlihat tapi kecil) */
+.scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.scrollbar-thin::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 999px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--muted-foreground);
+}
+
 /* ============================================================
    MOBILE-FIRST LAYER (Opsi C: bottom nav + list-first)
    Token & breakpoint mengikuti mock/mobile-mock.html
